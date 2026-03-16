@@ -1,0 +1,6 @@
+.env
+runner/.venv/
+__pycache__/
+.DS_Store
+playwright-report/
+playwright/.cache/

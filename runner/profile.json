@@ -1,0 +1,8 @@
+{
+  "full_name": "Bolu Akande",
+  "email": "bolu@example.com",
+  "phone": "469-555-0123",
+  "role": "SWE Intern",
+  "why_role": "I want this role to build real production systems, learn from strong engineers, and ship useful features fast.",
+  "project": "Built VisionFlow, a multimodal UI navigator that interprets screenshots and executes actions with schema validation and safety gating."
+}
