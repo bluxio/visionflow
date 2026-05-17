@@ -47,17 +47,10 @@ export function CoachApp() {
     setError(null);
     setQuota(null);
     setResult(null);
-    const sizeMb = Math.round(file.size / (1024 * 1024));
-    setLoadingHint(
-      sizeMb >= 40
-        ? `Uploading ${sizeMb}MB iPhone video… can take 3–8 minutes on Wi‑Fi. Then we compress and analyze.`
-        : sizeMb >= 15
-          ? `Uploading ${sizeMb}MB… then analyzing your set. Keep this tab open.`
-          : "Uploading and analyzing… keep this tab open.",
-    );
+    setLoadingHint("Starting upload…");
 
     try {
-      const data = await analyzeUpload(file, exerciseType);
+      const data = await analyzeUpload(file, exerciseType, setLoadingHint);
       setResult(data);
       await loadHistory();
     } catch (err) {

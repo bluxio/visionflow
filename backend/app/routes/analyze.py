@@ -13,6 +13,8 @@ from app.core.config import get_settings
 from app.core.errors import bad_request, quota_exceeded
 from app.schemas import AnalyzeRequest, AnalyzeResponse, ExerciseType
 from app.services import analyzers, supabase_store
+from app.services.analysis_runner import run_analysis
+from app.services.upload_chunks import cleanup_chunks, merge_chunks, save_chunk
 
 router = APIRouter(prefix="", tags=["analyze"])
 logger = logging.getLogger(__name__)
@@ -40,9 +42,33 @@ async def analyze_json(body: AnalyzeRequest) -> AnalyzeResponse:
     return analyzers.mock_analyze(body.exercise_type)
 
 
-@router.post("/analyze-upload", response_model=AnalyzeResponse)
-async def analyze_upload(
-    file: UploadFile = File(...),
+@router.post("/upload-chunk")
+async def upload_chunk(
+    upload_id: str = Form(...),
+    part_index: int = Form(...),
+    total_parts: int = Form(...),
+    chunk: UploadFile = File(...),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+) -> dict[str, str]:
+    if not x_client_id:
+        raise bad_request("X-Client-Id header is required")
+    if total_parts < 1 or total_parts > 80:
+        raise bad_request("Invalid total_parts")
+    if part_index < 0 or part_index >= total_parts:
+        raise bad_request("Invalid part_index")
+
+    settings = get_settings()
+    upload_root = Path(settings.upload_dir)
+    await asyncio.to_thread(save_chunk, upload_root, upload_id, part_index, chunk.file)
+    logger.info("chunk %s part %s/%s", upload_id[:8], part_index + 1, total_parts)
+    return {"status": "ok", "part_index": str(part_index)}
+
+
+@router.post("/analyze-assembled", response_model=AnalyzeResponse)
+async def analyze_assembled(
+    upload_id: str = Form(...),
+    total_parts: int = Form(...),
+    filename: str = Form("video.mov"),
     exercise_type: ExerciseType = Form(default=ExerciseType.squat),
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
 ) -> AnalyzeResponse:
@@ -51,19 +77,73 @@ async def analyze_upload(
 
     _check_quota(x_client_id)
 
+    settings = get_settings()
+    upload_root = Path(settings.upload_dir)
+    upload_root.mkdir(parents=True, exist_ok=True)
+
+    suffix = Path(filename).suffix or ".mp4"
+    merged_path = upload_root / f"{upload_id}{suffix}"
+
+    logger.info(
+        "analyze-assembled start client=%s upload=%s parts=%s file=%s",
+        x_client_id[:8],
+        upload_id[:8],
+        total_parts,
+        filename,
+    )
+
+    try:
+        await asyncio.to_thread(merge_chunks, upload_root, upload_id, total_parts, merged_path)
+
+        max_bytes = settings.max_upload_mb * 1024 * 1024
+        size = merged_path.stat().st_size
+        logger.info("merged upload %s bytes", size)
+        if size > max_bytes:
+            raise bad_request(
+                f"Video too large ({size // (1024 * 1024)}MB). "
+                f"Maximum upload is {settings.max_upload_mb}MB."
+            )
+
+        result = await run_analysis(merged_path, exercise_type, settings)
+        return _persist(x_client_id, result, str(merged_path))
+    finally:
+        cleanup_chunks(upload_root, upload_id)
+        if merged_path.exists():
+            try:
+                os.remove(merged_path)
+            except OSError:
+                pass
+
+
+@router.post("/analyze-upload", response_model=AnalyzeResponse)
+async def analyze_upload(
+    file: UploadFile = File(...),
+    exercise_type: ExerciseType = Form(default=ExerciseType.squat),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+) -> AnalyzeResponse:
+    """Single-request upload for smaller files."""
+    if not x_client_id:
+        raise bad_request("X-Client-Id header is required")
+
+    _check_quota(x_client_id)
+
     if not file.filename:
         raise bad_request("Uploaded file must have a filename")
 
-    upload_root = Path(get_settings().upload_dir)
+    settings = get_settings()
+    upload_root = Path(settings.upload_dir)
     upload_root.mkdir(parents=True, exist_ok=True)
 
     suffix = Path(file.filename).suffix or ".mp4"
     temp_path = upload_root / f"{uuid.uuid4()}{suffix}"
 
-    settings = get_settings()
-    logger.info("analyze-upload start client=%s exercise=%s file=%s", x_client_id[:8], exercise_type, file.filename)
+    logger.info(
+        "analyze-upload start client=%s exercise=%s file=%s",
+        x_client_id[:8],
+        exercise_type,
+        file.filename,
+    )
 
-    prep_path: Path | None = None
     try:
         with temp_path.open("wb") as out:
             shutil.copyfileobj(file.file, out)
@@ -77,37 +157,11 @@ async def analyze_upload(
                 f"Maximum upload is {settings.max_upload_mb}MB."
             )
 
-        analyze_path = temp_path
-        if exercise_type == ExerciseType.squat:
-            from app.services.video_prep import prepare_video_for_analysis
-
-            prep_path = await asyncio.to_thread(
-                prepare_video_for_analysis, temp_path, settings.max_analyze_seconds
-            )
-            analyze_path = prep_path
-
-        if exercise_type == ExerciseType.squat:
-            try:
-                from app.services.squat_pose_analyzer import analyze_squat_video
-
-                result = await asyncio.to_thread(analyze_squat_video, str(analyze_path))
-            except Exception as exc:
-                logger.exception("squat analysis failed")
-                raise bad_request(f"Squat analysis failed: {exc}") from exc
-        else:
-            result = analyzers.mock_analyze(exercise_type)
-
-        logger.info(
-            "analyze-upload done client=%s score=%s reps=%s",
-            x_client_id[:8],
-            result.overall_score,
-            result.rep_count,
-        )
+        result = await run_analysis(temp_path, exercise_type, settings)
         return _persist(x_client_id, result, str(temp_path))
     finally:
-        for path in (prep_path, temp_path):
-            if path and path.exists():
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+        if temp_path.exists():
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
