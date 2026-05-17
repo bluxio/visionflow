@@ -6,6 +6,41 @@ Full-stack MVP for upload-based workout form analysis with structured coaching f
 
 **Resume bullet:** Built a full-stack computer vision fitness app using FastAPI, Next.js, TypeScript, OpenCV, and MediaPipe to analyze squat videos, estimate form quality, detect movement issues, and return coach-style feedback with analysis history and quota tracking.
 
+**Demo assets:** `docs/assets/landing.png` · Demo script: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) · Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+  subgraph Client
+    Next[Next.js UI]
+  end
+  subgraph API[FastAPI]
+    Up[/analyze-upload/]
+    Hist[/history/]
+    Up --> Quota
+    Quota --> Route{exercise}
+    Route -->|squat| CV[MediaPipe + OpenCV]
+    Route -->|other| Mock[Mock analyzer]
+    CV --> JSON[AnalyzeResponse]
+    Mock --> JSON
+    JSON --> DB[(Supabase / memory)]
+  end
+  Next -->|video + X-Client-Id| Up
+  Next --> Hist
+  Hist --> DB
+```
+
+| Stage | What happens |
+|-------|----------------|
+| **Upload** | Browser sends multipart video + `exercise_type`; persistent `X-Client-Id` from `localStorage` |
+| **Quota** | Backend counts analyses in rolling 24h window per client (429 if ≥5) |
+| **Inference** | Squat → pose landmarks → rep detection → heuristic aspect scores; other lifts → mock until pipeline added |
+| **Persist** | Scores, feedback JSON, recommendations saved for history |
+| **UI** | Results cards + clickable history modal |
+
+Full diagrams, sequence flows, and scoring formulas: **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**
+
 ## Stack
 
 - **Frontend:** Next.js (App Router), TypeScript, Tailwind CSS
@@ -81,14 +116,31 @@ Update root `docker-compose.yml` to point at the new backend if needed.
 
 ## Squat analysis
 
-`squat` uploads run the MediaPipe Pose pipeline (`squat_pose_analyzer.py`):
+`squat` uploads run the MediaPipe Pose Landmarker pipeline (`squat_pose_analyzer.py`):
 
-- Landmark extraction per frame
-- Rep detection via knee-angle cycles
-- Scores: depth, knee tracking, torso lean
-- Structured `FormFeedback` + recommendations
+1. **Decode** video with OpenCV (~10 samples/sec)
+2. **Extract** 33 pose landmarks per frame (MediaPipe Tasks API)
+3. **Detect reps** from knee-angle valleys (smoothed time series)
+4. **Score** three aspects with documented heuristics:
+   - **Depth** — min knee flexion per rep (target ~parallel)
+   - **Knee tracking** — horizontal knee vs ankle drift
+   - **Torso lean** — forward lean vs braced ~32° band
+5. **Respond** with `FormFeedback[]`, overall score, rep count, recommendations
 
-Other exercises use the mock analyzer until dedicated pipelines are added.
+This is **applied CV + rule-based coaching**, not a custom trained model — appropriate for product/SWE roles. Logic is explicit in code and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+### Extensibility
+
+| Component | Role |
+|-----------|------|
+| `ExerciseType` enum | Shared exercise IDs across API + UI |
+| `routes/analyze.py` | Routes upload to the right analyzer |
+| `services/analyzers.py` | Mock placeholder for non-squat lifts |
+| `services/*_pose_analyzer.py` | One module per exercise pipeline (squat implemented) |
+
+Adding deadlift = new analyzer module + one branch in the router. API response shape stays the same.
+
+Other exercises use the mock analyzer until their pipeline exists.
 
 ## Environment variables
 
@@ -106,3 +158,22 @@ Other exercises use the mock analyzer until dedicated pipelines are added.
 ## Client ID
 
 The frontend generates a persistent UUID in `localStorage` and sends it as `X-Client-Id` on all API calls for history scoping and quota tracking.
+
+## Roadmap (portfolio priorities)
+
+| Leverage | Item | Status |
+|----------|------|--------|
+| **A** | Architecture docs + diagrams | ✅ |
+| **B** | Joint angles, frame annotations, confidence in API/UI | Next |
+| **C** | Stored artifacts (thumbnails, per-rep timestamps) | Next |
+| **D** | Production deploy (e.g. Vercel + Cloud Run) | Next |
+| — | Real-time webcam | Out of scope for MVP |
+
+## Positioning with LocalLead
+
+| Project | Signal |
+|---------|--------|
+| **LocalLead** | Product, full-stack, GTM, business systems |
+| **Workout Form Coach** | Applied AI, computer vision, media pipeline, health-tech |
+
+Together: you ship end-to-end, understand users, and can go deep on technical domains when needed.
