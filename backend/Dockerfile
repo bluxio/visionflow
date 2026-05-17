@@ -2,16 +2,22 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# OpenCV / MediaPipe runtime deps (headless wheels; minimal system libs)
+# System libs for opencv-python-headless + mediapipe on Debian slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgomp1 \
+    libgl1 \
+    libxcb1 \
+    libx11-6 \
+    libxext6 \
+    libxrender1 \
+    libsm6 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-# Install headless OpenCV before mediapipe so GUI opencv wheels are not pulled
 RUN pip install --no-cache-dir opencv-python-headless opencv-contrib-python-headless \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y opencv-python opencv-contrib-python 2>/dev/null || true
 
 COPY app ./app
 

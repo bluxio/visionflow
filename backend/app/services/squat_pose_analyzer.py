@@ -16,12 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import certifi
-
-import cv2
-import mediapipe as mp
 import numpy as np
-from mediapipe.tasks import python as mp_python
-from mediapipe.tasks.python import vision
 
 from app.schemas import AnalyzeResponse, ExerciseType, FormFeedback, Severity
 
@@ -207,6 +202,12 @@ def _severity(score: float) -> Severity:
 
 
 def analyze_squat_video(video_path: str) -> AnalyzeResponse:
+    # Lazy import: keeps FastAPI booting on /health if CV libs are misconfigured
+    import cv2
+    import mediapipe as mp
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python import vision
+
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError("Could not open video file")

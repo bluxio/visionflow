@@ -11,7 +11,6 @@ from app.core.config import get_settings
 from app.core.errors import bad_request, quota_exceeded
 from app.schemas import AnalyzeRequest, AnalyzeResponse, ExerciseType
 from app.services import analyzers, supabase_store
-from app.services.squat_pose_analyzer import analyze_squat_video
 
 router = APIRouter(prefix="", tags=["analyze"])
 
@@ -65,6 +64,8 @@ async def analyze_upload(
 
         if exercise_type == ExerciseType.squat:
             try:
+                from app.services.squat_pose_analyzer import analyze_squat_video
+
                 result = analyze_squat_video(str(temp_path))
             except Exception as exc:
                 raise bad_request(f"Squat analysis failed: {exc}") from exc
