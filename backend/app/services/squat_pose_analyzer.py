@@ -201,8 +201,8 @@ def _severity(score: float) -> Severity:
     return Severity.critical
 
 
-_MAX_WIDTH = 480
-_MAX_SAMPLES = 90  # cap pose samples for Render free tier (~512MB RAM)
+_MAX_WIDTH = 360
+_MAX_SAMPLES = 60  # cap pose samples for Render free tier (~512MB RAM)
 _MAX_ANALYZE_SECONDS = 45  # only process the first N seconds of long phone videos
 
 
@@ -217,6 +217,8 @@ def _resize_frame(frame, max_width: int = _MAX_WIDTH):
 
 
 def analyze_squat_video(video_path: str) -> AnalyzeResponse:
+    import gc
+
     # Lazy import: keeps FastAPI booting on /health if CV libs are misconfigured
     import cv2
     import mediapipe as mp
@@ -270,6 +272,8 @@ def analyze_squat_video(video_path: str) -> AnalyzeResponse:
                 metrics.append(m)
 
     cap.release()
+    del cap
+    gc.collect()
 
     reps = _detect_reps(metrics)
     rep_count = len(reps)

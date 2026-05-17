@@ -14,7 +14,7 @@ from app.core.errors import bad_request, quota_exceeded
 from app.schemas import AnalyzeRequest, AnalyzeResponse, ExerciseType
 from app.services import analyzers, supabase_store
 from app.services.analysis_runner import run_analysis
-from app.services.upload_chunks import cleanup_chunks, merge_chunks, save_chunk
+from app.services.upload_chunks import save_chunk
 
 router = APIRouter(prefix="", tags=["analyze"])
 logger = logging.getLogger(__name__)
@@ -81,9 +81,6 @@ async def analyze_assembled(
     upload_root = Path(settings.upload_dir)
     upload_root.mkdir(parents=True, exist_ok=True)
 
-    suffix = Path(filename).suffix or ".mp4"
-    merged_path = upload_root / f"{upload_id}{suffix}"
-
     logger.info(
         "analyze-assembled start client=%s upload=%s parts=%s file=%s",
         x_client_id[:8],
@@ -92,25 +89,35 @@ async def analyze_assembled(
         filename,
     )
 
+    prep_path: Path | None = None
     try:
-        await asyncio.to_thread(merge_chunks, upload_root, upload_id, total_parts, merged_path)
+        from app.services.video_prep import prepare_video_from_chunks
+
+        prep_path = await asyncio.to_thread(
+            prepare_video_from_chunks,
+            upload_root,
+            upload_id,
+            total_parts,
+            settings.max_analyze_seconds,
+        )
 
         max_bytes = settings.max_upload_mb * 1024 * 1024
-        size = merged_path.stat().st_size
-        logger.info("merged upload %s bytes", size)
+        size = prep_path.stat().st_size
+        logger.info("prep video %s bytes", size)
         if size > max_bytes:
             raise bad_request(
                 f"Video too large ({size // (1024 * 1024)}MB). "
                 f"Maximum upload is {settings.max_upload_mb}MB."
             )
 
-        result = await run_analysis(merged_path, exercise_type, settings)
-        return _persist(x_client_id, result, str(merged_path))
+        result = await run_analysis(
+            prep_path, exercise_type, settings, skip_prep=True
+        )
+        return _persist(x_client_id, result, str(prep_path))
     finally:
-        cleanup_chunks(upload_root, upload_id)
-        if merged_path.exists():
+        if prep_path and prep_path.exists():
             try:
-                os.remove(merged_path)
+                os.remove(prep_path)
             except OSError:
                 pass
 
