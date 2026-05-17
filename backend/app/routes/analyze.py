@@ -60,26 +60,37 @@ async def analyze_upload(
     suffix = Path(file.filename).suffix or ".mp4"
     temp_path = upload_root / f"{uuid.uuid4()}{suffix}"
 
+    settings = get_settings()
     logger.info("analyze-upload start client=%s exercise=%s file=%s", x_client_id[:8], exercise_type, file.filename)
 
+    prep_path: Path | None = None
     try:
         with temp_path.open("wb") as out:
             shutil.copyfileobj(file.file, out)
 
-        settings = get_settings()
         max_bytes = settings.max_upload_mb * 1024 * 1024
         size = temp_path.stat().st_size
+        logger.info("upload saved %s bytes", size)
         if size > max_bytes:
             raise bad_request(
                 f"Video too large ({size // (1024 * 1024)}MB). "
                 f"Maximum upload is {settings.max_upload_mb}MB."
             )
 
+        analyze_path = temp_path
+        if exercise_type == ExerciseType.squat:
+            from app.services.video_prep import prepare_video_for_analysis
+
+            prep_path = await asyncio.to_thread(
+                prepare_video_for_analysis, temp_path, settings.max_analyze_seconds
+            )
+            analyze_path = prep_path
+
         if exercise_type == ExerciseType.squat:
             try:
                 from app.services.squat_pose_analyzer import analyze_squat_video
 
-                result = await asyncio.to_thread(analyze_squat_video, str(temp_path))
+                result = await asyncio.to_thread(analyze_squat_video, str(analyze_path))
             except Exception as exc:
                 logger.exception("squat analysis failed")
                 raise bad_request(f"Squat analysis failed: {exc}") from exc
@@ -94,8 +105,9 @@ async def analyze_upload(
         )
         return _persist(x_client_id, result, str(temp_path))
     finally:
-        if temp_path.exists():
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+        for path in (prep_path, temp_path):
+            if path and path.exists():
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass

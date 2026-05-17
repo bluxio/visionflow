@@ -13,6 +13,7 @@ export function CoachApp() {
   const [exerciseType, setExerciseType] = useState<ExerciseType>("squat");
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingHint, setLoadingHint] = useState("");
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -46,6 +47,14 @@ export function CoachApp() {
     setError(null);
     setQuota(null);
     setResult(null);
+    const sizeMb = Math.round(file.size / (1024 * 1024));
+    setLoadingHint(
+      sizeMb >= 40
+        ? `Uploading ${sizeMb}MB iPhone video… can take 3–8 minutes on Wi‑Fi. Then we compress and analyze.`
+        : sizeMb >= 15
+          ? `Uploading ${sizeMb}MB… then analyzing your set. Keep this tab open.`
+          : "Uploading and analyzing… keep this tab open.",
+    );
 
     try {
       const data = await analyzeUpload(file, exerciseType);

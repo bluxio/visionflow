@@ -13,30 +13,30 @@ function apiUrl(path: string): string {
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-const ANALYZE_TIMEOUT_MS = 300_000; // 5 min — Render free tier cold start + CV
-
-async function apiFetch(path: string, init?: RequestInit, timeoutMs = 60_000): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+async function apiFetch(path: string, init?: RequestInit, timeoutMs?: number): Promise<Response> {
+  const controller = timeoutMs ? new AbortController() : null;
+  const timeout = controller
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : undefined;
 
   try {
-    return await fetch(apiUrl(path), { ...init, signal: controller.signal });
+    return await fetch(apiUrl(path), {
+      ...init,
+      signal: controller?.signal,
+    });
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(
-        "Request timed out. Use a shorter video (under 30s) and try again after /health responds.",
-      );
+      throw new Error("Request timed out. Try again in a moment.");
     }
     const msg = err instanceof Error ? err.message : "Network error";
     if (msg === "Load failed" || msg === "Failed to fetch") {
       throw new Error(
-        "Connection lost during analysis. The server may still be waking up or ran out of memory. " +
-          "Wait for /health to respond, then try again with a shorter clip if needed.",
+        "Connection lost. Large iPhone videos can take several minutes to upload — keep this tab open.",
       );
     }
     throw err;
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
 }
 
@@ -52,15 +52,15 @@ async function parseError(res: Response): Promise<string> {
   }
 }
 
-/** Wake Render free tier before a long analyze-upload request. */
 export async function wakeBackend(): Promise<void> {
   try {
-    await fetch(apiUrl("/health"), { method: "GET", cache: "no-store" });
+    await apiFetch("/health", { method: "GET", cache: "no-store" }, 30_000);
   } catch {
-    /* ignore — analyze may still work if instance is already warm */
+    /* ignore */
   }
 }
 
+/** No client timeout — large MOV uploads can take many minutes. */
 export async function analyzeUpload(
   file: File,
   exerciseType: ExerciseType,
@@ -71,15 +71,11 @@ export async function analyzeUpload(
   form.append("file", file);
   form.append("exercise_type", exerciseType);
 
-  const res = await apiFetch(
-    "/analyze-upload",
-    {
-      method: "POST",
-      headers: { "X-Client-Id": getClientId() },
-      body: form,
-    },
-    ANALYZE_TIMEOUT_MS,
-  );
+  const res = await apiFetch("/analyze-upload", {
+    method: "POST",
+    headers: { "X-Client-Id": getClientId() },
+    body: form,
+  });
 
   if (res.status === 429) {
     const body = await res.json();
@@ -97,19 +93,27 @@ export async function analyzeUpload(
 }
 
 export async function fetchHistory(): Promise<HistoryItem[]> {
-  const res = await apiFetch("/history", {
-    headers: { "X-Client-Id": getClientId() },
-    cache: "no-store",
-  });
+  const res = await apiFetch(
+    "/history",
+    {
+      headers: { "X-Client-Id": getClientId() },
+      cache: "no-store",
+    },
+    30_000,
+  );
   if (!res.ok) throw new Error(await parseError(res));
   return res.json() as Promise<HistoryItem[]>;
 }
 
 export async function fetchHistoryDetail(id: string): Promise<HistoryDetail> {
-  const res = await apiFetch(`/history/${id}`, {
-    headers: { "X-Client-Id": getClientId() },
-    cache: "no-store",
-  });
+  const res = await apiFetch(
+    `/history/${id}`,
+    {
+      headers: { "X-Client-Id": getClientId() },
+      cache: "no-store",
+    },
+    30_000,
+  );
   if (!res.ok) throw new Error(await parseError(res));
   return res.json() as Promise<HistoryDetail>;
 }
