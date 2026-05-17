@@ -64,6 +64,56 @@ async def upload_chunk(
     return {"status": "ok", "part_index": str(part_index)}
 
 
+@router.post("/analyze-storage", response_model=AnalyzeResponse)
+async def analyze_storage(
+    storage_path: str = Form(...),
+    exercise_type: ExerciseType = Form(default=ExerciseType.squat),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+) -> AnalyzeResponse:
+    """Analyze a video already uploaded to Supabase Storage (browser → Supabase → Render)."""
+    if not x_client_id:
+        raise bad_request("X-Client-Id header is required")
+    if not storage_path.startswith(x_client_id):
+        raise bad_request("Invalid storage path")
+
+    _check_quota(x_client_id)
+
+    settings = get_settings()
+    if not settings.supabase_configured:
+        raise bad_request("Supabase storage is not configured on the server")
+
+    upload_root = Path(settings.upload_dir)
+    upload_root.mkdir(parents=True, exist_ok=True)
+    suffix = Path(storage_path).suffix or ".mp4"
+    temp_path = upload_root / f"{uuid.uuid4()}{suffix}"
+
+    logger.info(
+        "analyze-storage start client=%s path=%s",
+        x_client_id[:8],
+        storage_path,
+    )
+
+    try:
+        from app.services.storage_download import download_storage_object, remove_storage_object
+
+        await asyncio.to_thread(download_storage_object, storage_path, temp_path)
+
+        max_bytes = settings.max_upload_mb * 1024 * 1024
+        size = temp_path.stat().st_size
+        if size > max_bytes:
+            raise bad_request(f"Video too large ({size // (1024 * 1024)}MB).")
+
+        result = await run_analysis(temp_path, exercise_type, settings)
+        await asyncio.to_thread(remove_storage_object, storage_path)
+        return _persist(x_client_id, result, storage_path)
+    finally:
+        if temp_path.exists():
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
 @router.post("/analyze-assembled", response_model=AnalyzeResponse)
 async def analyze_assembled(
     upload_id: str = Form(...),

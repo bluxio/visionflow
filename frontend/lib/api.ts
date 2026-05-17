@@ -1,5 +1,6 @@
 import { getApiBase } from "./api-base";
 import { getClientId } from "./client-id";
+import { canUseStorageUpload, getSupabaseBrowser } from "./supabase-client";
 import type {
   AnalyzeResponse,
   ExerciseType,
@@ -8,8 +9,9 @@ import type {
   QuotaError,
 } from "./types";
 
-const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB — avoids proxy/load-balancer timeouts
-const DIRECT_UPLOAD_MAX = 8 * 1024 * 1024; // 8MB
+const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB parts — reliable on mobile
+const DIRECT_UPLOAD_MAX = 8 * 1024 * 1024;
+const MAX_CHUNK_RETRIES = 3;
 
 function apiUrl(path: string): string {
   const base = getApiBase().replace(/\/$/, "");
@@ -34,7 +36,7 @@ async function apiFetch(path: string, init?: RequestInit, timeoutMs?: number): P
     const msg = err instanceof Error ? err.message : "Network error";
     if (msg === "Load failed" || msg === "Failed to fetch") {
       throw new Error(
-        "Upload interrupted. Stay on Wi‑Fi, keep this tab open, and try again.",
+        "Upload interrupted. If this keeps happening, add Supabase keys on Vercel (see docs/DEPLOY.md) or use a smaller export from Photos.",
       );
     }
     throw err;
@@ -77,6 +79,80 @@ export async function wakeBackend(): Promise<void> {
   }
 }
 
+async function uploadChunkWithRetry(
+  form: FormData,
+  partLabel: string,
+): Promise<void> {
+  const headers = { "X-Client-Id": getClientId() };
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_CHUNK_RETRIES; attempt++) {
+    try {
+      const res = await apiFetch(
+        "/upload-chunk",
+        { method: "POST", headers, body: form },
+        180_000,
+      );
+      if (!res.ok) {
+        throw new Error(await parseError(res));
+      }
+      return;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < MAX_CHUNK_RETRIES) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+    }
+  }
+  throw new Error(`${partLabel} failed after ${MAX_CHUNK_RETRIES} tries: ${lastError?.message}`);
+}
+
+async function uploadViaSupabase(
+  file: File,
+  exerciseType: ExerciseType,
+  onProgress?: (message: string) => void,
+): Promise<AnalyzeResponse> {
+  const supabase = getSupabaseBrowser();
+  if (!supabase) {
+    throw new Error("Supabase storage is not configured in the frontend.");
+  }
+
+  const clientId = getClientId();
+  const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : ".mov";
+  const storagePath = `${clientId}/${crypto.randomUUID()}${ext}`;
+
+  onProgress?.(`Uploading ${Math.round(file.size / (1024 * 1024))}MB to cloud storage…`);
+
+  const { error } = await supabase.storage.from("workout-videos").upload(storagePath, file, {
+    cacheControl: "3600",
+    upsert: true,
+  });
+
+  if (error) {
+    throw new Error(
+      `Storage upload failed: ${error.message}. Run supabase/storage_setup.sql in your Supabase project.`,
+    );
+  }
+
+  onProgress?.("Analyzing on server (this can take 1–2 minutes)…");
+
+  const form = new FormData();
+  form.append("storage_path", storagePath);
+  form.append("exercise_type", exerciseType);
+
+  const res = await apiFetch(
+    "/analyze-storage",
+    {
+      method: "POST",
+      headers: { "X-Client-Id": clientId },
+      body: form,
+    },
+    600_000,
+  );
+
+  return parseAnalyzeResponse(res);
+}
+
 async function uploadChunked(
   file: File,
   exerciseType: ExerciseType,
@@ -84,10 +160,11 @@ async function uploadChunked(
 ): Promise<AnalyzeResponse> {
   const uploadId = crypto.randomUUID();
   const totalParts = Math.ceil(file.size / CHUNK_SIZE);
-  const headers = { "X-Client-Id": getClientId() };
 
   for (let i = 0; i < totalParts; i++) {
-    onProgress?.(`Uploading part ${i + 1} of ${totalParts}…`);
+    const label = `Part ${i + 1}/${totalParts}`;
+    onProgress?.(`Uploading ${label}…`);
+
     const start = i * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, file.size);
     const blob = file.slice(start, end);
@@ -98,14 +175,7 @@ async function uploadChunked(
     form.append("total_parts", String(totalParts));
     form.append("chunk", blob, `part_${i}`);
 
-    const res = await apiFetch(
-      "/upload-chunk",
-      { method: "POST", headers, body: form },
-      120_000,
-    );
-    if (!res.ok) {
-      throw new Error(await parseError(res));
-    }
+    await uploadChunkWithRetry(form, label);
   }
 
   onProgress?.("Processing video on server…");
@@ -118,7 +188,11 @@ async function uploadChunked(
 
   const res = await apiFetch(
     "/analyze-assembled",
-    { method: "POST", headers, body: analyzeForm },
+    {
+      method: "POST",
+      headers: { "X-Client-Id": getClientId() },
+      body: analyzeForm,
+    },
     600_000,
   );
   return parseAnalyzeResponse(res);
@@ -153,10 +227,18 @@ export async function analyzeUpload(
     return uploadDirect(file, exerciseType);
   }
 
+  if (canUseStorageUpload()) {
+    return uploadViaSupabase(file, exerciseType, onProgress);
+  }
+
   onProgress?.(
-    `Large file (${Math.round(file.size / (1024 * 1024))}MB) — uploading in ${Math.ceil(file.size / CHUNK_SIZE)} parts…`,
+    `Uploading ${Math.round(file.size / (1024 * 1024))}MB in ${totalPartsLabel(file.size)} parts…`,
   );
   return uploadChunked(file, exerciseType, onProgress);
+}
+
+function totalPartsLabel(size: number) {
+  return String(Math.ceil(size / CHUNK_SIZE));
 }
 
 export async function fetchHistory(): Promise<HistoryItem[]> {
