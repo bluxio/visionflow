@@ -10,7 +10,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: CORS_ORIGINS
-        value: http://localhost:3000
+        value: http://localhost:3000,https://visionflow.vercel.app
       - key: DAILY_ANALYSIS_LIMIT
         value: "5"
       - key: QUOTA_WINDOW_HOURS

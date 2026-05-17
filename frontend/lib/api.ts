@@ -1,3 +1,4 @@
+import { getApiBase } from "./api-base";
 import { getClientId } from "./client-id";
 import type {
   AnalyzeResponse,
@@ -7,7 +8,24 @@ import type {
   QuotaError,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+function apiUrl(path: string): string {
+  const base = getApiBase().replace(/\/$/, "");
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(apiUrl(path), init);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Network error";
+    if (msg === "Load failed" || msg === "Failed to fetch") {
+      throw new Error(
+        "Cannot reach the API. Check Vercel BACKEND_URL and redeploy, or run the backend locally.",
+      );
+    }
+    throw err;
+  }
+}
 
 async function parseError(res: Response): Promise<string> {
   try {
@@ -29,7 +47,7 @@ export async function analyzeUpload(
   form.append("file", file);
   form.append("exercise_type", exerciseType);
 
-  const res = await fetch(`${API_BASE}/analyze-upload`, {
+  const res = await apiFetch("/analyze-upload", {
     method: "POST",
     headers: { "X-Client-Id": getClientId() },
     body: form,
@@ -51,7 +69,7 @@ export async function analyzeUpload(
 }
 
 export async function fetchHistory(): Promise<HistoryItem[]> {
-  const res = await fetch(`${API_BASE}/history`, {
+  const res = await apiFetch("/history", {
     headers: { "X-Client-Id": getClientId() },
     cache: "no-store",
   });
@@ -60,7 +78,7 @@ export async function fetchHistory(): Promise<HistoryItem[]> {
 }
 
 export async function fetchHistoryDetail(id: string): Promise<HistoryDetail> {
-  const res = await fetch(`${API_BASE}/history/${id}`, {
+  const res = await apiFetch(`/history/${id}`, {
     headers: { "X-Client-Id": getClientId() },
     cache: "no-store",
   });

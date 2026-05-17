@@ -35,13 +35,14 @@ Monorepo layout: `frontend/` (Vercel) + `backend/` (Render) + Supabase.
 1. [Vercel](https://vercel.com) → **Add New Project** → import GitHub repo.
 2. **Root Directory:** `frontend`
 3. Framework: Next.js (auto-detected)
-4. Environment variable:
+4. Environment variables:
 
 | Key | Value |
 |-----|--------|
-| `NEXT_PUBLIC_API_URL` | `https://YOUR-API.onrender.com` (no trailing slash) |
+| `BACKEND_URL` | `https://workout-form-coach-api.onrender.com` (no trailing slash) **required** |
+| `NEXT_PUBLIC_API_URL` | Optional for local; production uses `/wfc-api` proxy when unset |
 
-5. Deploy → note URL, e.g. `https://workout-form-coach.vercel.app`.
+5. Deploy → note URL, e.g. `https://visionflow.vercel.app`.
 
 ## 4. Wire CORS (after Vercel URL exists)
 
