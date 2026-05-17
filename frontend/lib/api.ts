@@ -13,19 +13,30 @@ function apiUrl(path: string): string {
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+const ANALYZE_TIMEOUT_MS = 300_000; // 5 min — Render free tier cold start + CV
+
+async function apiFetch(path: string, init?: RequestInit, timeoutMs = 60_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    return await fetch(apiUrl(path), init);
+    return await fetch(apiUrl(path), { ...init, signal: controller.signal });
   } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        "Request timed out. Use a shorter video (under 30s) and try again after /health responds.",
+      );
+    }
     const msg = err instanceof Error ? err.message : "Network error";
     if (msg === "Load failed" || msg === "Failed to fetch") {
       throw new Error(
-        "Cannot reach the API at " +
-          getApiBase() +
-          ". Render may be waking up — wait 30s and try again, or check render.com dashboard.",
+        "Connection lost during analysis. The server may have restarted (out of memory). " +
+          "Try a shorter video (under 30s, under 25MB) and wait for /health to return OK first.",
       );
     }
     throw err;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -60,11 +71,15 @@ export async function analyzeUpload(
   form.append("file", file);
   form.append("exercise_type", exerciseType);
 
-  const res = await apiFetch("/analyze-upload", {
-    method: "POST",
-    headers: { "X-Client-Id": getClientId() },
-    body: form,
-  });
+  const res = await apiFetch(
+    "/analyze-upload",
+    {
+      method: "POST",
+      headers: { "X-Client-Id": getClientId() },
+      body: form,
+    },
+    ANALYZE_TIMEOUT_MS,
+  );
 
   if (res.status === 429) {
     const body = await res.json();

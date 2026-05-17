@@ -201,6 +201,20 @@ def _severity(score: float) -> Severity:
     return Severity.critical
 
 
+_MAX_WIDTH = 480
+_MAX_SAMPLES = 90  # cap frames for Render free tier (~512MB RAM)
+
+
+def _resize_frame(frame, max_width: int = _MAX_WIDTH):
+    import cv2
+
+    h, w = frame.shape[:2]
+    if w <= max_width:
+        return frame
+    scale = max_width / w
+    return cv2.resize(frame, (max_width, int(h * scale)))
+
+
 def analyze_squat_video(video_path: str) -> AnalyzeResponse:
     # Lazy import: keeps FastAPI booting on /health if CV libs are misconfigured
     import cv2
@@ -213,7 +227,7 @@ def analyze_squat_video(video_path: str) -> AnalyzeResponse:
         raise ValueError("Could not open video file")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    frame_skip = max(1, int(fps / 10))
+    frame_skip = max(1, int(fps / 5))  # ~5 samples/sec (enough for rep detection)
 
     options = vision.PoseLandmarkerOptions(
         base_options=mp_python.BaseOptions(model_asset_path=_ensure_model()),
@@ -226,9 +240,10 @@ def analyze_squat_video(video_path: str) -> AnalyzeResponse:
 
     metrics: list[FrameMetrics] = []
     frame_idx = 0
+    samples_taken = 0
 
     with vision.PoseLandmarker.create_from_options(options) as landmarker:
-        while True:
+        while samples_taken < _MAX_SAMPLES:
             ok, frame = cap.read()
             if not ok:
                 break
@@ -236,12 +251,14 @@ def analyze_squat_video(video_path: str) -> AnalyzeResponse:
                 frame_idx += 1
                 continue
 
+            frame = _resize_frame(frame)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w = rgb.shape[:2]
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
             timestamp_ms = int((frame_idx / fps) * 1000)
             result = landmarker.detect_for_video(mp_image, timestamp_ms)
             frame_idx += 1
+            samples_taken += 1
 
             if not result.pose_landmarks:
                 continue

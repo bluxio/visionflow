@@ -1,5 +1,7 @@
 """Analysis endpoints: URL-based mock and multipart upload."""
 
+import asyncio
+import logging
 import os
 import shutil
 import uuid
@@ -13,6 +15,9 @@ from app.schemas import AnalyzeRequest, AnalyzeResponse, ExerciseType
 from app.services import analyzers, supabase_store
 
 router = APIRouter(prefix="", tags=["analyze"])
+logger = logging.getLogger(__name__)
+
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25MB — keeps Render memory stable
 
 
 def _check_quota(client_id: str | None) -> None:
@@ -58,20 +63,35 @@ async def analyze_upload(
     suffix = Path(file.filename).suffix or ".mp4"
     temp_path = upload_root / f"{uuid.uuid4()}{suffix}"
 
+    logger.info("analyze-upload start client=%s exercise=%s file=%s", x_client_id[:8], exercise_type, file.filename)
+
     try:
         with temp_path.open("wb") as out:
             shutil.copyfileobj(file.file, out)
+
+        size = temp_path.stat().st_size
+        if size > MAX_UPLOAD_BYTES:
+            raise bad_request(
+                f"Video too large ({size // (1024 * 1024)}MB). Use a clip under 25MB and ~30 seconds."
+            )
 
         if exercise_type == ExerciseType.squat:
             try:
                 from app.services.squat_pose_analyzer import analyze_squat_video
 
-                result = analyze_squat_video(str(temp_path))
+                result = await asyncio.to_thread(analyze_squat_video, str(temp_path))
             except Exception as exc:
+                logger.exception("squat analysis failed")
                 raise bad_request(f"Squat analysis failed: {exc}") from exc
         else:
             result = analyzers.mock_analyze(exercise_type)
 
+        logger.info(
+            "analyze-upload done client=%s score=%s reps=%s",
+            x_client_id[:8],
+            result.overall_score,
+            result.rep_count,
+        )
         return _persist(x_client_id, result, str(temp_path))
     finally:
         if temp_path.exists():

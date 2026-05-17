@@ -32,7 +32,7 @@ export function UploadForm({
         Analyze form
       </h2>
       <p className="mt-1 text-sm text-[#A0AEC0]">
-        Upload a side-angle video. Squats use MediaPipe pose analysis.
+        Side-angle clip, under 30 seconds and 25MB. Squats use MediaPipe on the server.
       </p>
 
       <div className="mt-6 space-y-4">
