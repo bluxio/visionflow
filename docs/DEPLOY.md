@@ -11,10 +11,11 @@ Monorepo layout: `frontend/` (Vercel) + `backend/` (Render) + Supabase.
 ## 2. Backend (Render)
 
 1. [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint** → connect `bluxio/visionflow` (or **Web Service** manually).
-2. If manual:
-   - **Root Directory:** `backend`
-   - **Runtime:** Docker (uses `backend/Dockerfile`)
-   - **Start Command:** (Dockerfile already runs uvicorn with `$PORT`)
+2. If manual (Docker):
+   - **Root Directory:** leave empty (repo root) **or** set `backend` — must match Dockerfile path below
+   - **Dockerfile Path:** `backend/Dockerfile` (from repo root) **not** `Dockerfile` alone
+   - **Docker Context:** `backend` (or same as root directory)
+   - If you see `open Dockerfile: no such file or directory`, the path points at repo root instead of `backend/`.
 3. Environment variables:
 
 | Key | Value |
