@@ -2,11 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System libs for opencv-python-headless + mediapipe on Debian slim
+# System libs for opencv-python-headless + mediapipe (incl. libGLESv2.so.2)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgomp1 \
     libgl1 \
+    libegl1 \
+    libgles2 \
+    libgbm1 \
     libxcb1 \
     libx11-6 \
     libxext6 \
@@ -21,7 +24,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir --force-reinstall \
          opencv-python-headless opencv-contrib-python-headless \
-    && python -c "import cv2; import mediapipe; print('cv2', cv2.__version__, 'mediapipe', mediapipe.__version__)"
+    && python -c "\
+import cv2;\
+import mediapipe as mp;\
+from mediapipe.tasks.python import vision;\
+print('cv2', cv2.__version__, 'mediapipe', mp.__version__, 'vision', vision.__name__)"
 
 COPY app ./app
 
