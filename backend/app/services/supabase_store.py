@@ -7,6 +7,7 @@ development works without a database. Production should always configure Supabas
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -63,6 +64,7 @@ def save_analysis(
         _memory[client_id].insert(0, row)
         return analysis_id
 
+    feedback_payload = row["feedback"]
     sb.table("analyses").insert(
         {
             "id": analysis_id,
@@ -70,7 +72,8 @@ def save_analysis(
             "exercise_type": row["exercise_type"],
             "overall_score": row["overall_score"],
             "rep_count": row["rep_count"],
-            "feedback": row["feedback"],
+            "feedback": feedback_payload,
+            "raw_feedback": json.dumps(feedback_payload),
             "recommendations": row["recommendations"],
             "severity_max": row["severity_max"],
             "video_path": video_path,
