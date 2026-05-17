@@ -1,6 +1,6 @@
 /**
  * Resolve API base URL.
- * Production browser uses same-origin /wfc-api proxy (see next.config rewrites) to avoid CORS.
+ * Production browser uses same-origin /wfc-api route handler (runtime proxy to Render).
  * Local dev talks to FastAPI on localhost:8000 directly.
  */
 export function getApiBase(): string {
