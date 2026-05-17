@@ -4,7 +4,7 @@ services:
   - type: web
     name: workout-form-coach-api
     runtime: docker
-    dockerfilePath: backend/Dockerfile
+    dockerfilePath: Dockerfile
     dockerContext: backend
     plan: free
     healthCheckPath: /health

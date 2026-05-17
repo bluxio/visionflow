@@ -6,7 +6,17 @@ Full-stack MVP for upload-based workout form analysis with structured coaching f
 
 **Resume bullet:** Built a full-stack computer vision fitness app using FastAPI, Next.js, TypeScript, OpenCV, and MediaPipe to analyze squat videos, estimate form quality, detect movement issues, and return coach-style feedback with analysis history and quota tracking.
 
-**Demo assets:** `docs/assets/landing.png` · Demo script: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) · Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+**Demo assets:** `docs/assets/landing.png` · Demo script: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) · Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Deploy: [`docs/DEPLOY.md`](docs/DEPLOY.md)
+
+## Live demo
+
+| | URL |
+|---|-----|
+| **App** | _Deploy to Vercel — set root `frontend`, env `NEXT_PUBLIC_API_URL`_ |
+| **API** | _Deploy to Render — see [`docs/DEPLOY.md`](docs/DEPLOY.md)_ |
+| **API docs** | `https://YOUR-API.onrender.com/docs` |
+
+After deploy, replace the placeholders above with your live URLs.
 
 ## Architecture at a glance
 
