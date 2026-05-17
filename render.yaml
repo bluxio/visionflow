@@ -1,0 +1,23 @@
+# Render Blueprint — Workout Form Coach API
+# Dashboard: New > Blueprint > connect repo, or apply from Render dashboard.
+services:
+  - type: web
+    name: workout-form-coach-api
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: CORS_ORIGINS
+        value: http://localhost:3000
+      - key: DAILY_ANALYSIS_LIMIT
+        value: "5"
+      - key: QUOTA_WINDOW_HOURS
+        value: "24"
+      - key: UPLOAD_DIR
+        value: /tmp/workout-form-coach/uploads
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
