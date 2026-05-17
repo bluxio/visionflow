@@ -30,8 +30,8 @@ async function apiFetch(path: string, init?: RequestInit, timeoutMs = 60_000): P
     const msg = err instanceof Error ? err.message : "Network error";
     if (msg === "Load failed" || msg === "Failed to fetch") {
       throw new Error(
-        "Connection lost during analysis. The server may have restarted (out of memory). " +
-          "Try a shorter video (under 30s, under 25MB) and wait for /health to return OK first.",
+        "Connection lost during analysis. The server may still be waking up or ran out of memory. " +
+          "Wait for /health to respond, then try again with a shorter clip if needed.",
       );
     }
     throw err;

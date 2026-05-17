@@ -202,7 +202,8 @@ def _severity(score: float) -> Severity:
 
 
 _MAX_WIDTH = 480
-_MAX_SAMPLES = 90  # cap frames for Render free tier (~512MB RAM)
+_MAX_SAMPLES = 90  # cap pose samples for Render free tier (~512MB RAM)
+_MAX_ANALYZE_SECONDS = 45  # only process the first N seconds of long phone videos
 
 
 def _resize_frame(frame, max_width: int = _MAX_WIDTH):
@@ -228,6 +229,7 @@ def analyze_squat_video(video_path: str) -> AnalyzeResponse:
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
     frame_skip = max(1, int(fps / 5))  # ~5 samples/sec (enough for rep detection)
+    max_frame_idx = int(fps * _MAX_ANALYZE_SECONDS)
 
     options = vision.PoseLandmarkerOptions(
         base_options=mp_python.BaseOptions(model_asset_path=_ensure_model()),
@@ -243,7 +245,7 @@ def analyze_squat_video(video_path: str) -> AnalyzeResponse:
     samples_taken = 0
 
     with vision.PoseLandmarker.create_from_options(options) as landmarker:
-        while samples_taken < _MAX_SAMPLES:
+        while samples_taken < _MAX_SAMPLES and frame_idx < max_frame_idx:
             ok, frame = cap.read()
             if not ok:
                 break

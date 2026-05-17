@@ -32,7 +32,8 @@ export function UploadForm({
         Analyze form
       </h2>
       <p className="mt-1 text-sm text-[#A0AEC0]">
-        Side-angle clip, under 30 seconds and 25MB. Squats use MediaPipe on the server.
+        Phone videos are fine (up to 200MB). We analyze the first ~45 seconds only.
+        Film from the side with your full body in frame.
       </p>
 
       <div className="mt-6 space-y-4">

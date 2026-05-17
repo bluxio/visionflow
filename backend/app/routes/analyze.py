@@ -17,8 +17,6 @@ from app.services import analyzers, supabase_store
 router = APIRouter(prefix="", tags=["analyze"])
 logger = logging.getLogger(__name__)
 
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25MB — keeps Render memory stable
-
 
 def _check_quota(client_id: str | None) -> None:
     if not client_id:
@@ -56,8 +54,7 @@ async def analyze_upload(
     if not file.filename:
         raise bad_request("Uploaded file must have a filename")
 
-    settings = get_settings()
-    upload_root = Path(settings.upload_dir)
+    upload_root = Path(get_settings().upload_dir)
     upload_root.mkdir(parents=True, exist_ok=True)
 
     suffix = Path(file.filename).suffix or ".mp4"
@@ -69,10 +66,13 @@ async def analyze_upload(
         with temp_path.open("wb") as out:
             shutil.copyfileobj(file.file, out)
 
+        settings = get_settings()
+        max_bytes = settings.max_upload_mb * 1024 * 1024
         size = temp_path.stat().st_size
-        if size > MAX_UPLOAD_BYTES:
+        if size > max_bytes:
             raise bad_request(
-                f"Video too large ({size // (1024 * 1024)}MB). Use a clip under 25MB and ~30 seconds."
+                f"Video too large ({size // (1024 * 1024)}MB). "
+                f"Maximum upload is {settings.max_upload_mb}MB."
             )
 
         if exercise_type == ExerciseType.squat:

@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     daily_analysis_limit: int = 5
     quota_window_hours: int = 24
     upload_dir: str = "/tmp/workout-form-coach/uploads"
+    max_upload_mb: int = 200
+    max_analyze_seconds: int = 45
 
     @property
     def supabase_configured(self) -> bool:
