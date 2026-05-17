@@ -1,4 +1,10 @@
-fastapi
-uvicorn[standard]
-python-multipart
-google-genai
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+supabase>=2.10.0
+opencv-python-headless>=4.10.0
+mediapipe>=0.10.14
+numpy>=1.26.0
+certifi>=2024.8.0

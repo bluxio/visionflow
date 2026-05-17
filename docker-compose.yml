@@ -4,7 +4,11 @@ services:
       context: backend
       dockerfile: Dockerfile
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - CORS_ORIGINS=http://localhost:3000
+      - DAILY_ANALYSIS_LIMIT=5
+      - QUOTA_WINDOW_HOURS=24
     ports:
       - "8000:8000"
   demo_app:

@@ -1,6 +1,12 @@
 .env
+.env.local
+.env.local-backup
 runner/.venv/
+backend/.venv/
+frontend/node_modules/
+frontend/.next/
 __pycache__/
 .DS_Store
 playwright-report/
 playwright/.cache/
+/tmp/

@@ -1,78 +1,108 @@
-# VisionFlow
+# Workout Form Coach
 
-VisionFlow is a vision-based web copilot demo with:
+> Full-stack AI fitness app that analyzes squat videos using MediaPipe/OpenCV and returns form feedback, movement insights, and client-scoped analysis history.
 
-- `backend/` FastAPI planner (`/next_action`)
-- `runner/` Playwright executor
-- `demo_app/` stable local job-application UI for reproducible demos
+Full-stack MVP for upload-based workout form analysis with structured coaching feedback.
 
-## Local Run
+**Resume bullet:** Built a full-stack computer vision fitness app using FastAPI, Next.js, TypeScript, OpenCV, and MediaPipe to analyze squat videos, estimate form quality, detect movement issues, and return coach-style feedback with analysis history and quota tracking.
 
-Start backend + demo app:
+## Stack
 
-```bash
-cd /Users/boluakande/visionflow
-docker compose up --build -d demo_app backend
+- **Frontend:** Next.js (App Router), TypeScript, Tailwind CSS
+- **Backend:** FastAPI, Pydantic v2, MediaPipe + OpenCV (squat analysis)
+- **Database:** Supabase (Postgres) — optional for local dev (in-memory fallback)
+
+## Project structure
+
+```
+backend/app/          # FastAPI application
+  routes/             # HTTP handlers
+  services/           # analyzers, Supabase store, squat pose pipeline
+  core/               # config, errors
+frontend/             # Next.js UI (Performance Lab aesthetic)
+supabase/schema.sql   # Postgres schema
 ```
 
-Set up runner once:
+## Quick start
+
+### 1. Backend
 
 ```bash
-python -m venv runner/.venv && source runner/.venv/bin/activate && pip install -r runner/requirements.txt && playwright install chromium
+cd backend
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+# Optional: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
+uvicorn app.main:app --reload --port 8000
 ```
 
-Run the executor:
+API docs: http://localhost:8000/docs
+
+### 2. Supabase (production / persistent history)
+
+1. Create a Supabase project.
+2. Run `supabase/schema.sql` in the SQL editor.
+3. Add to `backend/.env`:
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+
+Without Supabase, the backend uses an in-memory store (fine for local testing).
+
+### 3. Frontend
 
 ```bash
-source runner/.venv/bin/activate
-python runner/run.py
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
 ```
 
-Optional runner env controls:
+Open http://localhost:3000
+
+### 4. Docker (backend only)
 
 ```bash
-export DEMO_APP_URL="http://localhost:8080"
-export BACKEND_URL="http://localhost:8000/next_action"
-export MAX_STEPS="30"
-export SLOW_MS="300"
-export SETTLE_MS="250"
+docker compose up --build backend
 ```
 
-Optional backend kill-switch for demo reliability:
+Update root `docker-compose.yml` to point at the new backend if needed.
 
-```bash
-export DEMO_SCRIPTED_MODE="1"
-```
+## API overview
 
-## Cloud Run Deploy (When Billing Is Active)
+| Method | Path | Notes |
+|--------|------|--------|
+| POST | `/analyze` | JSON body, mock analyzer |
+| POST | `/analyze-upload` | Multipart video + `X-Client-Id` |
+| GET | `/history` | Recent analyses, `X-Client-Id` |
+| GET | `/history/{id}` | Full analysis detail |
 
-Use the one-command script:
+**Quota:** 5 analyses per client per rolling 24h (HTTP 429 when exceeded).
 
-```bash
-cd /Users/boluakande/visionflow
-PROJECT_ID="YOUR_PROJECT_ID" REGION="us-central1" GEMINI_API_KEY="YOUR_NEW_KEY" ./infra/deploy_cloud_run.sh
-```
+## Squat analysis
 
-The script will:
+`squat` uploads run the MediaPipe Pose pipeline (`squat_pose_analyzer.py`):
 
-- enable required APIs
-- create/update Secret Manager secret `gemini-api-key`
-- grant secret access to runtime service account
-- deploy `visionflow-backend` and `visionflow-demo-app`
-- print both deployed service URLs
+- Landmark extraction per frame
+- Rep detection via knee-angle cycles
+- Scores: depth, knee tracking, torso lean
+- Structured `FormFeedback` + recommendations
 
-Run navigator against deployed services:
+Other exercises use the mock analyzer until dedicated pipelines are added.
 
-```bash
-export DEMO_APP_URL="https://VISIONFLOW-DEMO-APP-URL"
-export BACKEND_URL="https://VISIONFLOW-BACKEND-URL/next_action"
-source runner/.venv/bin/activate
-python runner/run.py
-```
+## Environment variables
 
-## Hackathon Submission Checklist
+**Backend** (`backend/.env.example`):
 
-- [ ] Demo video under 4 minutes
-- [ ] Separate proof-of-cloud-deployment clip
-- [ ] Architecture diagram
-- [ ] Public repo with reproducible setup instructions
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- `CORS_ORIGINS` (default `http://localhost:3000`)
+- `DAILY_ANALYSIS_LIMIT`, `QUOTA_WINDOW_HOURS`
+- `UPLOAD_DIR`
+
+**Frontend** (`frontend/.env.example`):
+
+- `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`)
+
+## Client ID
+
+The frontend generates a persistent UUID in `localStorage` and sends it as `X-Client-Id` on all API calls for history scoping and quota tracking.
