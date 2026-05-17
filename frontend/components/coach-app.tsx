@@ -110,7 +110,8 @@ export function CoachApp() {
 
         {loading && (
           <div className="rounded-xl border border-[#1E2635] bg-[#111826] p-6 text-center text-sm text-[#A0AEC0]">
-            Running analysis… this may take a moment for squat videos.
+            Waking API and analyzing… first squat on Render free tier can take 1–2
+            minutes. Do not close this tab.
           </div>
         )}
 

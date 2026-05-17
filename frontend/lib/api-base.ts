@@ -1,13 +1,15 @@
 /**
- * Resolve API base URL.
- * Production browser uses same-origin /wfc-api route handler (runtime proxy to Render).
- * Local dev talks to FastAPI on localhost:8000 directly.
+ * API base URL resolution.
+ * Production calls Render directly (CORS allows *.vercel.app).
+ * Avoids Vercel /wfc-api proxy — that hits ~60s serverless timeout during squat analysis.
  */
+export const PRODUCTION_API = "https://workout-form-coach-api.onrender.com";
+
 export function getApiBase(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
 
   if (typeof window === "undefined") {
-    return configured ?? "http://127.0.0.1:8000";
+    return configured ?? PRODUCTION_API;
   }
 
   const host = window.location.hostname;
@@ -17,10 +19,9 @@ export function getApiBase(): string {
     return configured ?? "http://localhost:8000";
   }
 
-  // Prefer explicit production API URL when set (not localhost)
   if (configured && !configured.includes("localhost") && !configured.includes("127.0.0.1")) {
     return configured;
   }
 
-  return "/wfc-api";
+  return PRODUCTION_API;
 }
