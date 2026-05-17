@@ -15,9 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir opencv-python-headless opencv-contrib-python-headless \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip uninstall -y opencv-python opencv-contrib-python 2>/dev/null || true
+
+# Install app deps, then ensure headless OpenCV wins over mediapipe's GUI wheels.
+# Do NOT pip uninstall opencv packages — that can remove cv2 entirely.
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --force-reinstall \
+         opencv-python-headless opencv-contrib-python-headless \
+    && python -c "import cv2; import mediapipe; print('cv2', cv2.__version__, 'mediapipe', mediapipe.__version__)"
 
 COPY app ./app
 
