@@ -6,13 +6,14 @@
 
 **Resume bullet:** Built and deployed a full-stack computer vision fitness app using Next.js, FastAPI, OpenCV, MediaPipe, Supabase, and Render to analyze squat videos, detect reps, generate form feedback, and persist workout history.
 
-**Demo:** [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) · Screenshots: [`docs/assets/`](docs/assets/) · Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Deploy: [`docs/DEPLOY.md`](docs/DEPLOY.md)
+**Demo video:** [YouTube Short](https://youtube.com/shorts/KE2LhbJaghQ) · Script: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) · Screenshots: [`docs/assets/`](docs/assets/) · Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Deploy: [`docs/DEPLOY.md`](docs/DEPLOY.md)
 
 ## Live demo
 
 | | URL |
 |---|-----|
 | **App** | https://visionflow.vercel.app |
+| **Demo video** | https://youtube.com/shorts/KE2LhbJaghQ |
 | **API** | https://workout-form-coach-api.onrender.com |
 | **API docs** | https://workout-form-coach-api.onrender.com/docs |
 

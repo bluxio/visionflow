@@ -1,6 +1,12 @@
-# Demo video script (60–90 seconds)
+# Demo video
 
-Record against the **live app**: https://visionflow.vercel.app  
+**Recorded demo:** https://youtube.com/shorts/KE2LhbJaghQ  
+**Live app:** https://visionflow.vercel.app · **Repo:** https://github.com/bluxio/visionflow
+
+---
+
+# Script (60–90 seconds)
+
 Use a real side-view squat clip (5 slow reps, full body in frame).
 
 ## 0:00–0:10 — Hook
