@@ -1,22 +1,30 @@
 # Workout Form Coach
 
-> Full-stack AI fitness app that analyzes squat videos using MediaPipe/OpenCV and returns form feedback, movement insights, and client-scoped analysis history.
+> Full-stack AI fitness app that analyzes squat videos using MediaPipe/OpenCV and returns rep counts, form scores, and coaching cues with persistent workout history.
 
-Full-stack MVP for upload-based workout form analysis with structured coaching feedback.
+**Production pipeline:** Next.js → Supabase Storage → FastAPI → MediaPipe/OpenCV → scoring → persistent workout history (Supabase Postgres).
 
-**Resume bullet:** Built a full-stack computer vision fitness app using FastAPI, Next.js, TypeScript, OpenCV, and MediaPipe to analyze squat videos, estimate form quality, detect movement issues, and return coach-style feedback with analysis history and quota tracking.
+**Resume bullet (copy/paste):** Built and deployed a full-stack computer vision fitness app using Next.js, FastAPI, OpenCV, MediaPipe, Supabase, and Render to analyze squat videos, detect reps, generate form feedback, and persist workout history.
 
-**Demo assets:** `docs/assets/landing.png` · Demo script: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) · Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Deploy: [`docs/DEPLOY.md`](docs/DEPLOY.md)
+**Demo:** [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) · Screenshots: [`docs/assets/`](docs/assets/) · Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Deploy: [`docs/DEPLOY.md`](docs/DEPLOY.md)
 
 ## Live demo
 
 | | URL |
 |---|-----|
-| **App** | _Deploy to Vercel — set root `frontend`, env `NEXT_PUBLIC_API_URL`_ |
-| **API** | _Deploy to Render — see [`docs/DEPLOY.md`](docs/DEPLOY.md)_ |
-| **API docs** | `https://YOUR-API.onrender.com/docs` |
+| **App** | https://visionflow.vercel.app |
+| **API** | https://workout-form-coach-api.onrender.com |
+| **API docs** | https://workout-form-coach-api.onrender.com/docs |
 
-After deploy, replace the placeholders above with your live URLs.
+Upload a side-view squat clip (phone video OK, up to 200MB). The backend analyzes the first ~45 seconds.
+
+## Screenshots
+
+| Upload | Results | History |
+|--------|---------|---------|
+| ![Upload screen](docs/assets/landing.png) | _Add `docs/assets/results.png`_ | _Add `docs/assets/history.png`_ |
+
+See [`docs/assets/README.md`](docs/assets/README.md) for capture checklist.
 
 ## Architecture at a glance
 
@@ -25,29 +33,32 @@ flowchart LR
   subgraph Client
     Next[Next.js UI]
   end
-  subgraph API[FastAPI]
-    Up[/analyze-upload/]
-    Hist[/history/]
-    Up --> Quota
-    Quota --> Route{exercise}
-    Route -->|squat| CV[MediaPipe + OpenCV]
-    Route -->|other| Mock[Mock analyzer]
-    CV --> JSON[AnalyzeResponse]
-    Mock --> JSON
-    JSON --> DB[(Supabase / memory)]
+  subgraph Storage[Supabase]
+    Bucket[(Storage uploads)]
+    DB[(Postgres analyses)]
   end
-  Next -->|video + X-Client-Id| Up
+  subgraph API[FastAPI on Render]
+    Analyze[/analyze-storage/]
+    Hist[/history/]
+    Analyze --> Quota
+    Quota --> CV[MediaPipe + OpenCV]
+    CV --> JSON[AnalyzeResponse]
+    JSON --> DB
+  end
+  Next -->|large video| Bucket
+  Next -->|storage_path + X-Client-Id| Analyze
+  Analyze -->|stream download| Bucket
   Next --> Hist
   Hist --> DB
 ```
 
 | Stage | What happens |
 |-------|----------------|
-| **Upload** | Browser sends multipart video + `exercise_type`; persistent `X-Client-Id` from `localStorage` |
-| **Quota** | Backend counts analyses in rolling 24h window per client (429 if ≥5) |
-| **Inference** | Squat → pose landmarks → rep detection → heuristic aspect scores; other lifts → mock until pipeline added |
-| **Persist** | Scores, feedback JSON, recommendations saved for history |
-| **UI** | Results cards + clickable history modal |
+| **Upload** | Large files → Supabase Storage `uploads` bucket; backend streams download for analysis |
+| **Quota** | 5 analyses per client per rolling 24h (HTTP 429 when exceeded) |
+| **Inference** | Squat → pose landmarks → rep detection (knee angle + hip fallback) → depth / knee / torso scores |
+| **Persist** | Overall score, rep count, feedback JSON, recommendations → Supabase |
+| **UI** | Results cards + recent analyses + detail modal |
 
 Full diagrams, sequence flows, and scoring formulas: **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**
 
@@ -117,8 +128,9 @@ Update root `docker-compose.yml` to point at the new backend if needed.
 
 | Method | Path | Notes |
 |--------|------|--------|
-| POST | `/analyze` | JSON body, mock analyzer |
-| POST | `/analyze-upload` | Multipart video + `X-Client-Id` |
+| POST | `/analyze-storage` | Video already in Supabase Storage (production path) |
+| POST | `/analyze-upload` | Multipart video (small files / local dev) |
+| POST | `/upload-chunk` + `/analyze-assembled` | Chunked fallback |
 | GET | `/history` | Recent analyses, `X-Client-Id` |
 | GET | `/history/{id}` | Full analysis detail |
 
@@ -130,7 +142,7 @@ Update root `docker-compose.yml` to point at the new backend if needed.
 
 1. **Decode** video with OpenCV (~10 samples/sec)
 2. **Extract** 33 pose landmarks per frame (MediaPipe Tasks API)
-3. **Detect reps** from knee-angle valleys (smoothed time series)
+3. **Detect reps** from smoothed knee-angle cycles with hip-height fallback (side-view tolerant)
 4. **Score** three aspects with documented heuristics:
    - **Depth** — min knee flexion per rep (target ~parallel)
    - **Knee tracking** — horizontal knee vs ankle drift
@@ -156,14 +168,16 @@ Other exercises use the mock analyzer until their pipeline exists.
 
 **Backend** (`backend/.env.example`):
 
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- `CORS_ORIGINS` (default `http://localhost:3000`)
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` (default `uploads`)
+- `CORS_ORIGINS` (include your Vercel URL)
 - `DAILY_ANALYSIS_LIMIT`, `QUOTA_WINDOW_HOURS`
 - `UPLOAD_DIR`
 
 **Frontend** (`frontend/.env.example`):
 
-- `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`)
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (required for large uploads in production)
+- `NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET` (default `uploads`)
+- `NEXT_PUBLIC_API_URL` (optional; production defaults to Render API)
 
 ## Client ID
 
@@ -174,9 +188,10 @@ The frontend generates a persistent UUID in `localStorage` and sends it as `X-Cl
 | Leverage | Item | Status |
 |----------|------|--------|
 | **A** | Architecture docs + diagrams | ✅ |
-| **B** | Joint angles, frame annotations, confidence in API/UI | Next |
-| **C** | Stored artifacts (thumbnails, per-rep timestamps) | Next |
-| **D** | Production deploy (e.g. Vercel + Cloud Run) | Next |
+| **B** | Production deploy (Vercel + Render + Supabase) | ✅ |
+| **C** | Rep detection + real-world phone footage | ✅ |
+| **D** | Demo video + README screenshots | In progress — see `docs/DEMO_SCRIPT.md` |
+| **E** | Joint angles, frame annotations in API/UI | Next |
 | — | Real-time webcam | Out of scope for MVP |
 
 ## Positioning with LocalLead

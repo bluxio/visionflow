@@ -1,31 +1,44 @@
 # Demo video script (60–90 seconds)
 
-Record screen + optional voiceover. Use a real side-angle squat clip (5–10 reps).
+Record against the **live app**: https://visionflow.vercel.app  
+Use a real side-view squat clip (5 slow reps, full body in frame).
 
 ## 0:00–0:10 — Hook
+
 - Show landing: **Workout Form Coach** / Performance Lab UI
 - One line: “Upload a squat video, get rep counts and coaching cues.”
 
-## 0:10–0:25 — Upload
-- Select **Squat (pose analysis)**
-- Pick video from camera roll or files
-- Tap **Analyze form** (show brief loading state)
+## 0:10–0:30 — Upload
 
-## 0:25–0:50 — Results
-- Scroll results: overall score, rep count, depth / knee tracking / torso lean
+- Select **Squat (pose analysis)**
+- Pick video (phone camera roll is fine)
+- Tap **Analyze form**
+- Brief loading: “Uploading …MB to cloud storage…” then “Analyzing on server…”
+
+## 0:30–0:55 — Results
+
+- Scroll results: overall score, **rep count** (e.g. 5 reps), depth / knee tracking / torso lean
 - Read one feedback card aloud
 - Show recommendations list
 
-## 0:50–1:10 — History
+## 0:55–1:15 — History
+
 - Point at **Recent analyses**
 - Tap an item → modal with full detail
-- Optional: mention 5/day free quota (don’t need to hit limit on camera)
+- Optional: “History is scoped per browser via client ID; five free analyses per day.”
 
-## 1:10–1:20 — Tech (optional end card)
-- “FastAPI + MediaPipe + Next.js”
-- GitHub URL on screen
+## 1:15–1:25 — Tech (end card)
+
+- On screen: `Next.js → Supabase Storage → FastAPI → MediaPipe → Postgres`
+- GitHub: https://github.com/bluxio/visionflow
 
 ## Recording tips
-- Browser: http://localhost:3000 (frontend) with backend on :8000
-- Use phone simulator width (390px) or record on real phone against deployed URL later
-- Keep background dark; avoid flashy transitions
+
+- **Production:** https://visionflow.vercel.app (Wi‑Fi, keep tab open during upload)
+- **Local:** `npm run dev` in `frontend/`, `uvicorn` in `backend/` on :8000
+- Film squat: side angle, hip height, feet visible, socks/shoes for contrast
+- Capture screenshots for README: upload screen, results (with rep count), history panel → save as `docs/assets/results.png`
+
+## LinkedIn / applications (one-liner)
+
+Built and deployed a computer vision fitness coach: upload squat video → MediaPipe pose analysis → rep count + form scores + coaching cues, with cloud storage and persistent history.
