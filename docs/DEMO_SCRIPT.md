@@ -1,6 +1,6 @@
 # Demo video
 
-**Recorded demo:** https://youtube.com/shorts/KE2LhbJaghQ  
+**Recorded demo:** https://youtu.be/mvUUCDUzBVg  
 **Live app:** https://visionflow.vercel.app · **Repo:** https://github.com/bluxio/visionflow
 
 ---
