@@ -4,7 +4,7 @@
 
 **Production pipeline:** Next.js → Supabase Storage → FastAPI → MediaPipe/OpenCV → scoring → persistent workout history (Supabase Postgres).
 
-**Resume bullet (copy/paste):** Built and deployed a full-stack computer vision fitness app using Next.js, FastAPI, OpenCV, MediaPipe, Supabase, and Render to analyze squat videos, detect reps, generate form feedback, and persist workout history.
+**Resume bullet:** Built and deployed a full-stack computer vision fitness app using Next.js, FastAPI, OpenCV, MediaPipe, Supabase, and Render to analyze squat videos, detect reps, generate form feedback, and persist workout history.
 
 **Demo:** [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) · Screenshots: [`docs/assets/`](docs/assets/) · Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Deploy: [`docs/DEPLOY.md`](docs/DEPLOY.md)
 
