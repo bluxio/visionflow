@@ -1,6 +1,9 @@
 "use client";
 
+import { canUseStorageUpload } from "@/lib/supabase-client";
 import type { ExerciseType } from "@/lib/types";
+
+const LARGE_FILE_BYTES = 8 * 1024 * 1024;
 
 const EXERCISES: { value: ExerciseType; label: string }[] = [
   { value: "squat", label: "Squat (pose analysis)" },
@@ -16,6 +19,7 @@ interface UploadFormProps {
   onAnalyze: () => void;
   loading: boolean;
   fileName: string | null;
+  fileSizeBytes?: number;
 }
 
 export function UploadForm({
@@ -25,7 +29,13 @@ export function UploadForm({
   onAnalyze,
   loading,
   fileName,
+  fileSizeBytes,
 }: UploadFormProps) {
+  const needsSupabase =
+    typeof fileSizeBytes === "number" &&
+    fileSizeBytes > LARGE_FILE_BYTES &&
+    !canUseStorageUpload();
+
   return (
     <section className="rounded-xl border border-[#1E2635] bg-[#111826] p-6">
       <h2 className="text-sm font-medium uppercase tracking-wider text-[#A0AEC0]">
@@ -65,6 +75,14 @@ export function UploadForm({
           />
           {fileName && (
             <p className="mt-2 truncate text-xs text-[#A0AEC0]">{fileName}</p>
+          )}
+          {needsSupabase && (
+            <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              This file is large. Production must have{" "}
+              <code className="text-amber-100">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+              <code className="text-amber-100">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> on Vercel
+              (see docs/DEPLOY.md). Without them, upload to Render often fails on phone Wi‑Fi.
+            </p>
           )}
         </label>
 

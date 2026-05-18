@@ -6,7 +6,7 @@ Monorepo layout: `frontend/` (Vercel) + `backend/` (Render) + Supabase.
 
 1. Create project at [supabase.com](https://supabase.com).
 2. SQL Editor → run `supabase/schema.sql`.
-3. SQL Editor → run `supabase/storage_setup.sql` (enables large iPhone video uploads).
+3. SQL Editor → run `supabase/storage_setup.sql` if your bucket is not `uploads` yet, or to add anon policies on `uploads`.
 4. Settings → API → copy **Project URL**, **anon public** key (frontend), and **service_role** key (backend only).
 
 ## 2. Backend (Render)
@@ -43,6 +43,7 @@ Monorepo layout: `frontend/` (Vercel) + `backend/` (Render) + Supabase.
 |-----|--------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Same as `SUPABASE_URL` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase **anon** key (required for large uploads) |
+| `NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET` | `uploads` (must match Supabase bucket id exactly) |
 | `NEXT_PUBLIC_API_URL` | `https://workout-form-coach-api.onrender.com` (optional; hardcoded fallback exists) |
 
 5. Deploy → note URL, e.g. `https://visionflow.vercel.app`.

@@ -1,17 +1,17 @@
 -- Run in Supabase SQL Editor (one time)
--- Enables direct browser uploads; backend downloads with service role.
+-- Bucket id must match NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET / SUPABASE_STORAGE_BUCKET (default: uploads)
 
 insert into storage.buckets (id, name, public, file_size_limit)
-values ('workout-videos', 'workout-videos', false, 209715200)
+values ('uploads', 'uploads', false, 209715200)
 on conflict (id) do update set file_size_limit = 209715200;
 
 -- Allow anonymous uploads into this bucket only (MVP — tighten for production)
-create policy "workout_videos_anon_insert"
+create policy "uploads_anon_insert"
 on storage.objects for insert
 to anon
-with check (bucket_id = 'workout-videos');
+with check (bucket_id = 'uploads');
 
-create policy "workout_videos_anon_select"
+create policy "uploads_anon_select"
 on storage.objects for select
 to anon
-using (bucket_id = 'workout-videos');
+using (bucket_id = 'uploads');

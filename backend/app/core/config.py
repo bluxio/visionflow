@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+    supabase_storage_bucket: str = "uploads"
     cors_origins: str = "http://localhost:3000"
     daily_analysis_limit: int = 5
     quota_window_hours: int = 24

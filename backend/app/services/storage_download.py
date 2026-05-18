@@ -9,8 +9,6 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-BUCKET = "workout-videos"
-
 
 def _storage_client():
     from app.core.config import get_settings
@@ -22,8 +20,14 @@ def _storage_client():
     return create_client(settings.supabase_url, settings.supabase_service_role_key)
 
 
+def _bucket() -> str:
+    from app.core.config import get_settings
+
+    return get_settings().supabase_storage_bucket
+
+
 def _signed_url(client, storage_path: str, expires_in: int = 3600) -> str:
-    result = client.storage.from_(BUCKET).create_signed_url(storage_path, expires_in)
+    result = client.storage.from_(_bucket()).create_signed_url(storage_path, expires_in)
     if isinstance(result, dict):
         return result.get("signedURL") or result.get("signedUrl") or ""
     raise RuntimeError("Could not create signed URL for storage object")
@@ -49,6 +53,6 @@ def download_storage_object(storage_path: str, dest: Path) -> None:
 def remove_storage_object(storage_path: str) -> None:
     try:
         client = _storage_client()
-        client.storage.from_(BUCKET).remove([storage_path])
+        client.storage.from_(_bucket()).remove([storage_path])
     except Exception as exc:
         logger.warning("could not remove storage object %s: %s", storage_path, exc)

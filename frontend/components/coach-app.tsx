@@ -108,6 +108,7 @@ export function CoachApp() {
           onAnalyze={handleAnalyze}
           loading={loading}
           fileName={file?.name ?? null}
+          fileSizeBytes={file?.size}
         />
 
         {loading && (

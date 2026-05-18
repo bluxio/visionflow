@@ -1,6 +1,10 @@
 import { getApiBase } from "./api-base";
 import { getClientId } from "./client-id";
-import { canUseStorageUpload, getSupabaseBrowser } from "./supabase-client";
+import {
+  canUseStorageUpload,
+  getSupabaseBrowser,
+  SUPABASE_STORAGE_BUCKET,
+} from "./supabase-client";
 import type {
   AnalyzeResponse,
   ExerciseType,
@@ -123,7 +127,7 @@ async function uploadViaSupabase(
 
   onProgress?.(`Uploading ${Math.round(file.size / (1024 * 1024))}MB to cloud storage…`);
 
-  const { error } = await supabase.storage.from("workout-videos").upload(storagePath, file, {
+  const { error } = await supabase.storage.from(SUPABASE_STORAGE_BUCKET).upload(storagePath, file, {
     cacheControl: "3600",
     upsert: true,
   });
