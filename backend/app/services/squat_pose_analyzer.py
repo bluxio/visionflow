@@ -10,6 +10,7 @@ Pipeline:
 
 from __future__ import annotations
 
+import logging
 import ssl
 import urllib.request
 from dataclasses import dataclass
@@ -19,6 +20,15 @@ import certifi
 import numpy as np
 
 from app.schemas import AnalyzeResponse, ExerciseType, FormFeedback, Severity
+
+logger = logging.getLogger(__name__)
+
+# Landmark visibility — relaxed for carpet / side-view phone footage
+_MIN_LEG_VISIBILITY = 0.32
+_MIN_SHOULDER_VISIBILITY = 0.25
+_SMOOTH_WINDOW = 9
+_MIN_REP_SPAN_DEG = 10.0  # minimum knee-angle swing to count movement as squats
+_MIN_FRAMES_BETWEEN_REPS = 6
 
 _MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
@@ -57,6 +67,14 @@ def _lm(landmarks, idx: int, w: int, h: int) -> np.ndarray:
     return np.array([lm.x * w, lm.y * h, lm.z * w])
 
 
+def _leg_visibility(landmarks, hip_i: int, knee_i: int, ankle_i: int) -> float:
+    return min(
+        landmarks[hip_i].visibility,
+        landmarks[knee_i].visibility,
+        landmarks[ankle_i].visibility,
+    )
+
+
 def _extract_metrics(landmarks, w: int, h: int) -> FrameMetrics | None:
     if len(landmarks) < 29:
         return None
@@ -69,17 +87,35 @@ def _extract_metrics(landmarks, w: int, h: int) -> FrameMetrics | None:
     except (IndexError, AttributeError):
         return None
 
-    vis = [landmarks[i].visibility for i in (23, 24, 25, 26, 27, 28, 11, 12)]
-    if min(vis) < 0.5:
+    left_vis = _leg_visibility(landmarks, 23, 25, 27)
+    right_vis = _leg_visibility(landmarks, 24, 26, 28)
+    shoulder_vis = min(landmarks[11].visibility, landmarks[12].visibility)
+
+    if max(left_vis, right_vis) < _MIN_LEG_VISIBILITY:
+        return None
+    if shoulder_vis < _MIN_SHOULDER_VISIBILITY:
         return None
 
     hip = (l_hip + r_hip) / 2
-    knee = (l_knee + r_knee) / 2
-    ankle = (l_ankle + r_ankle) / 2
     shoulder = (l_shoulder + r_shoulder) / 2
 
-    knee_angle = (_angle(hip, knee, ankle) + _angle(r_hip, r_knee, r_ankle)) / 2
-    hip_angle = (_angle(l_shoulder, l_hip, l_knee) + _angle(r_shoulder, r_hip, r_knee)) / 2
+    # Side-view: use the clearer leg for knee angle (far leg is often occluded).
+    if left_vis >= right_vis:
+        knee, ankle = l_knee, l_ankle
+        knee_angle = _angle(l_hip, l_knee, l_ankle)
+        hip_angle = _angle(l_shoulder, l_hip, l_knee)
+    else:
+        knee, ankle = r_knee, r_ankle
+        knee_angle = _angle(r_hip, r_knee, r_ankle)
+        hip_angle = _angle(r_shoulder, r_hip, r_knee)
+
+    if left_vis >= _MIN_LEG_VISIBILITY and right_vis >= _MIN_LEG_VISIBILITY:
+        knee_angle = (
+            _angle(l_hip, l_knee, l_ankle) + _angle(r_hip, r_knee, r_ankle)
+        ) / 2
+        hip_angle = (
+            _angle(l_shoulder, l_hip, l_knee) + _angle(r_shoulder, r_hip, r_knee)
+        ) / 2
 
     vertical = np.array([0.0, -1.0])
     torso_vec = shoulder[:2] - hip[:2]
@@ -97,32 +133,139 @@ def _extract_metrics(landmarks, w: int, h: int) -> FrameMetrics | None:
     )
 
 
+def _smooth_series(values: np.ndarray, window: int = _SMOOTH_WINDOW) -> np.ndarray:
+    if len(values) < 3:
+        return values
+    window = min(window, len(values))
+    if window % 2 == 0:
+        window -= 1
+    kernel = np.ones(window) / window
+    pad = window // 2
+    padded = np.pad(values, (pad, pad), mode="edge")
+    smoothed = np.convolve(padded, kernel, mode="valid")
+    return smoothed[: len(values)]
+
+
+def _merge_close_bottoms(bottoms: list[int], min_gap: int) -> list[int]:
+    if not bottoms:
+        return []
+    merged = [bottoms[0]]
+    for b in bottoms[1:]:
+        if b - merged[-1] < min_gap:
+            merged[-1] = b
+        else:
+            merged.append(b)
+    return merged
+
+
 def _detect_reps(metrics: list[FrameMetrics]) -> list[tuple[int, int]]:
-    if len(metrics) < 10:
+    if len(metrics) < 6:
+        logger.info("rep_detection: too few metric frames (%s)", len(metrics))
         return []
 
-    angles = np.array([m.knee_angle for m in metrics])
-    smoothed = np.convolve(angles, np.ones(5) / 5, mode="same")
-    threshold = float(np.percentile(smoothed, 35))
+    angles = np.array([m.knee_angle for m in metrics], dtype=float)
+    smoothed = _smooth_series(angles)
 
-    in_squat = False
+    stand_ref = float(np.percentile(smoothed, 88))
+    bottom_ref = float(np.percentile(smoothed, 12))
+    span = stand_ref - bottom_ref
+
+    if span < _MIN_REP_SPAN_DEG:
+        span = float(np.max(smoothed) - np.min(smoothed))
+        stand_ref = float(np.max(smoothed))
+        bottom_ref = float(np.min(smoothed))
+
+    # Hysteresis: enter bottom earlier, exit standing earlier (tolerant to noise).
+    down_thresh = stand_ref - span * 0.50
+    up_thresh = stand_ref - span * 0.22
+
+    in_bottom = False
     rep_bottoms: list[int] = []
+    transitions: list[str] = []
+
     for i, angle in enumerate(smoothed):
-        if not in_squat and angle < threshold:
-            in_squat = True
+        if not in_bottom and angle <= down_thresh:
+            in_bottom = True
             rep_bottoms.append(i)
-        elif in_squat and angle > threshold + 15:
-            in_squat = False
+            transitions.append(f"f{i}:down({angle:.1f})")
+        elif in_bottom and angle >= up_thresh:
+            in_bottom = False
+            transitions.append(f"f{i}:up({angle:.1f})")
+
+    rep_bottoms = _merge_close_bottoms(rep_bottoms, _MIN_FRAMES_BETWEEN_REPS)
 
     reps: list[tuple[int, int]] = []
     for i, bottom in enumerate(rep_bottoms):
-        start = rep_bottoms[i - 1] if i > 0 else max(0, bottom - 15)
+        start = rep_bottoms[i - 1] if i > 0 else max(0, bottom - 12)
         end = (
             rep_bottoms[i + 1]
             if i + 1 < len(rep_bottoms)
-            else min(len(metrics) - 1, bottom + 15)
+            else min(len(metrics) - 1, bottom + 12)
         )
         reps.append((start, end))
+
+    logger.info(
+        "rep_detection knee frames=%s stand=%.1f bottom=%.1f span=%.1f "
+        "down_th=%.1f up_th=%.1f bottoms=%s reps=%s "
+        "angles_sample=%s transitions=%s",
+        len(metrics),
+        stand_ref,
+        bottom_ref,
+        span,
+        down_thresh,
+        up_thresh,
+        rep_bottoms,
+        len(reps),
+        [round(float(a), 1) for a in smoothed[:: max(1, len(smoothed) // 8)]],
+        transitions[:20],
+    )
+
+    if reps:
+        return reps
+    return _detect_reps_hip_fallback(metrics)
+
+
+def _detect_reps_hip_fallback(metrics: list[FrameMetrics]) -> list[tuple[int, int]]:
+    """Secondary detector: hip vertical position (robust when knee angle is noisy)."""
+    hip_ys = np.array([m.hip_y for m in metrics], dtype=float)
+    smoothed = _smooth_series(hip_ys)
+
+    low_ref = float(np.percentile(smoothed, 12))  # standing — hips higher in frame
+    high_ref = float(np.percentile(smoothed, 88))  # bottom — hips lower in frame
+    span = high_ref - low_ref
+    if span < 0.02:
+        logger.info("rep_detection hip fallback: span too small (%.3f)", span)
+        return []
+
+    down_thresh = low_ref + span * 0.48
+    up_thresh = low_ref + span * 0.20
+
+    in_bottom = False
+    rep_bottoms: list[int] = []
+    for i, y in enumerate(smoothed):
+        if not in_bottom and y >= down_thresh:
+            in_bottom = True
+            rep_bottoms.append(i)
+        elif in_bottom and y <= up_thresh:
+            in_bottom = False
+
+    rep_bottoms = _merge_close_bottoms(rep_bottoms, _MIN_FRAMES_BETWEEN_REPS)
+    reps: list[tuple[int, int]] = []
+    for i, bottom in enumerate(rep_bottoms):
+        start = rep_bottoms[i - 1] if i > 0 else max(0, bottom - 12)
+        end = (
+            rep_bottoms[i + 1]
+            if i + 1 < len(rep_bottoms)
+            else min(len(metrics) - 1, bottom + 12)
+        )
+        reps.append((start, end))
+
+    logger.info(
+        "rep_detection hip fallback bottoms=%s reps=%s hip_sample=%s",
+        rep_bottoms,
+        len(reps),
+        [round(float(y), 3) for y in smoothed[:: max(1, len(smoothed) // 8)]],
+    )
     return reps
 
 
@@ -237,14 +380,17 @@ def analyze_squat_video(video_path: str) -> AnalyzeResponse:
         base_options=mp_python.BaseOptions(model_asset_path=_ensure_model()),
         running_mode=vision.RunningMode.VIDEO,
         num_poses=1,
-        min_pose_detection_confidence=0.5,
-        min_pose_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
+        min_pose_detection_confidence=0.4,
+        min_pose_presence_confidence=0.4,
+        min_tracking_confidence=0.4,
     )
 
     metrics: list[FrameMetrics] = []
     frame_idx = 0
     samples_taken = 0
+    pose_misses = 0
+    metric_misses = 0
+    visibility_samples: list[float] = []
 
     with vision.PoseLandmarker.create_from_options(options) as landmarker:
         while samples_taken < _MAX_SAMPLES and frame_idx < max_frame_idx:
@@ -265,15 +411,35 @@ def analyze_squat_video(video_path: str) -> AnalyzeResponse:
             samples_taken += 1
 
             if not result.pose_landmarks:
+                pose_misses += 1
                 continue
             landmarks = result.pose_landmarks[0]
+            left_vis = _leg_visibility(landmarks, 23, 25, 27)
+            right_vis = _leg_visibility(landmarks, 24, 26, 28)
+            visibility_samples.append(max(left_vis, right_vis))
+
             m = _extract_metrics(landmarks, w, h)
             if m:
                 metrics.append(m)
+            else:
+                metric_misses += 1
 
     cap.release()
     del cap
     gc.collect()
+
+    if visibility_samples:
+        logger.info(
+            "squat_pose samples=%s metrics=%s pose_miss=%s metric_miss=%s "
+            "leg_vis median=%.2f min=%.2f max=%.2f",
+            samples_taken,
+            len(metrics),
+            pose_misses,
+            metric_misses,
+            float(np.median(visibility_samples)),
+            float(np.min(visibility_samples)),
+            float(np.max(visibility_samples)),
+        )
 
     reps = _detect_reps(metrics)
     rep_count = len(reps)
