@@ -12,7 +12,7 @@
 
 | | URL |
 |---|-----|
-| **App** | https://visionflow.vercel.app |
+| **App** | https://visionflow-dun.vercel.app |
 | **Demo video** | https://youtu.be/mvUUCDUzBVg |
 | **API** | https://workout-form-coach-api.onrender.com |
 | **API docs** | https://workout-form-coach-api.onrender.com/docs |

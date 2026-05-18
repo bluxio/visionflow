@@ -46,14 +46,14 @@ Monorepo layout: `frontend/` (Vercel) + `backend/` (Render) + Supabase.
 | `NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET` | `uploads` (must match Supabase bucket id exactly) |
 | `NEXT_PUBLIC_API_URL` | `https://workout-form-coach-api.onrender.com` (optional; hardcoded fallback exists) |
 
-5. Deploy → note URL, e.g. `https://visionflow.vercel.app`.
+5. Deploy → note URL, e.g. `https://visionflow-dun.vercel.app`.
 
 ## 4. Wire CORS (after Vercel URL exists)
 
 Update Render env `CORS_ORIGINS`:
 
 ```
-http://localhost:3000,https://your-app.vercel.app
+http://localhost:3000,https://visionflow-dun.vercel.app
 ```
 
 Redeploy backend (or wait for env reload).

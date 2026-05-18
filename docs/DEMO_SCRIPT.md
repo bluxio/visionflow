@@ -1,7 +1,7 @@
 # Demo video
 
 **Recorded demo:** https://youtu.be/mvUUCDUzBVg  
-**Live app:** https://visionflow.vercel.app · **Repo:** https://github.com/bluxio/visionflow
+**Live app:** https://visionflow-dun.vercel.app · **Repo:** https://github.com/bluxio/visionflow
 
 ---
 
@@ -40,7 +40,7 @@ Use a real side-view squat clip (5 slow reps, full body in frame).
 
 ## Recording tips
 
-- **Production:** https://visionflow.vercel.app (Wi‑Fi, keep tab open during upload)
+- **Production:** https://visionflow-dun.vercel.app (Wi‑Fi, keep tab open during upload)
 - **Local:** `npm run dev` in `frontend/`, `uvicorn` in `backend/` on :8000
 - Film squat: side angle, hip height, feet visible, socks/shoes for contrast
 - Capture screenshots for README: upload screen, results (with rep count), history panel → save as `docs/assets/results.png`
