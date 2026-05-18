@@ -20,11 +20,9 @@ Upload a side-view squat clip (phone video OK, up to 200MB). The backend analyze
 
 ## Screenshots
 
-| Upload | Results | History |
-|--------|---------|---------|
-| ![Upload screen](docs/assets/landing.png) | _Add `docs/assets/results.png`_ | _Add `docs/assets/history.png`_ |
-
-See [`docs/assets/README.md`](docs/assets/README.md) for capture checklist.
+| Upload | Results (5 reps, 69.3 score) | History |
+|--------|------------------------------|---------|
+| ![Upload screen](docs/assets/landing.png) | ![Analysis results](docs/assets/results.png) | ![Recent analyses](docs/assets/history.png) |
 
 ## Architecture at a glance
 
