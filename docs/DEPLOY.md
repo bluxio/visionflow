@@ -70,4 +70,4 @@ Add to README after live:
 
 ## 6. Record demo (60–90s)
 
-See `docs/DEMO_SCRIPT.md` — use **production URLs** and a real side-angle squat video.
+Demo video: https://youtu.be/mvUUCDUzBVg · App: https://visionflow-dun.vercel.app
