@@ -10,3 +10,4 @@ __pycache__/
 playwright-report/
 playwright/.cache/
 /tmp/
+mcp-doctor/

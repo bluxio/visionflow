@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Apply Assistant</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <h1>Apply Assistant</h1>
+        <p class="tagline">Draft → review → fill. You submit.</p>
+      </div>
+      <button type="button" id="tab-settings" class="ghost" title="Settings">⚙</button>
+    </header>
+
+    <nav class="tabs" hidden id="main-tabs">
+      <button type="button" data-panel="work" class="tab active">Apply</button>
+      <button type="button" data-panel="history" class="tab">History</button>
+    </nav>
+
+    <section id="panel-settings" class="panel" hidden>
+      <label class="field">
+        <span>Gemini API key</span>
+        <input type="password" id="api-key" placeholder="AIza…" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span>Your profile JSON</span>
+        <textarea id="profile-json" rows="12" spellcheck="false"></textarea>
+      </label>
+      <div class="row">
+        <button type="button" id="save-settings" class="primary">Save settings</button>
+        <button type="button" id="load-default-profile" class="ghost">Reset profile template</button>
+      </div>
+      <p class="hint">Key stays in chrome.storage.local on this machine. Profile drives tone + projects.</p>
+      <button type="button" id="back-to-work" class="ghost">← Back</button>
+    </section>
+
+    <section id="panel-work" class="panel">
+      <div id="job-card" class="card muted">
+        <p>Open a Wellfound (or other) application page, then extract.</p>
+      </div>
+
+      <div class="row">
+        <button type="button" id="btn-extract" class="primary">Extract job</button>
+        <button type="button" id="btn-generate" class="primary" disabled>Generate answers</button>
+      </div>
+
+      <div id="status" class="status" aria-live="polite"></div>
+
+      <div id="answers-wrap" hidden>
+        <label class="field">
+          <span>Why this company?</span>
+          <textarea id="why-us" rows="5"></textarea>
+        </label>
+        <label class="field">
+          <span>Cover letter (optional)</span>
+          <textarea id="cover-letter" rows="4"></textarea>
+        </label>
+        <div id="extra-answers"></div>
+        <div id="tips" class="tips"></div>
+        <div class="row">
+          <button type="button" id="btn-fill" class="primary">Autofill form</button>
+          <button type="button" id="btn-save" class="ghost">Save to history</button>
+          <button type="button" id="btn-copy-why" class="ghost">Copy Why us</button>
+        </div>
+        <p class="hint">Autofill never clicks Submit. Review fields, then submit yourself.</p>
+      </div>
+    </section>
+
+    <section id="panel-history" class="panel" hidden>
+      <div id="history-list" class="history"></div>
+    </section>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

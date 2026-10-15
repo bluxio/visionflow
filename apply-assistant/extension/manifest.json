@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Apply Assistant",
+  "version": "0.1.0",
+  "description": "Personal AI helper for startup job applications. Reads the page, drafts answers in your voice, autofills — you review and submit.",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": [
+    "https://wellfound.com/*",
+    "https://*.wellfound.com/*",
+    "https://angel.co/*",
+    "https://*.angel.co/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Apply Assistant",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://wellfound.com/*",
+        "https://*.wellfound.com/*",
+        "https://angel.co/*",
+        "https://*.angel.co/*"
+      ],
+      "js": ["content/extract.js", "content/autofill.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

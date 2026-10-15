@@ -1,0 +1,12 @@
+wasm_simd128.h
+===============
+Source: LLVM Project, clang/lib/Headers/wasm_simd128.h
+Revision: 4434dabb69916856b824f68a64b029c67175e532 (bundled Clang 22.1.0)
+URL: https://github.com/llvm/llvm-project/blob/4434dabb69916856b824f68a64b029c67175e532/clang/lib/Headers/wasm_simd128.h
+License: Apache-2.0 WITH LLVM-exception; see LICENSE-LLVM.txt.
+Local modification: added #pragma clang system_header to preserve the diagnostic
+handling used when this header is loaded from Clang's builtin include directory.
+
+C++ bots can include <wasm_simd128.h> to use v128_t and wasm_* intrinsics.
+The bot CMake configuration enables -msimd128. Custom build systems must
+enable this compiler option as well.

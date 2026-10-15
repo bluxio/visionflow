@@ -1,0 +1,7 @@
+.cambc/
+bots/*/.cambc/
+matches/
+.venv/
+replays/
+bots/*/build/
+bots/*/target/
