@@ -7,7 +7,7 @@
 namespace tuning {
 using enum cambc::champion_draft;
 // Picks are revealed simultaneously and duplicates across teams are allowed, so a fixed order is safe.
-inline constexpr std::array draft_priority = { cassi_and_issac, stellar, tavi, varg, ren, vendetta, ryth, willow, vesper_vale, marcella, prism };
+inline constexpr std::array draft_priority = { cassi_and_issac, stellar, ren, tavi, varg, ryth, vendetta, willow, vesper_vale, marcella, prism };
 // Bought until the emblem completes, then each champion buys its main stat.
 inline constexpr cambc::item_type opening_shard = cambc::item_type::durability_shard_of_health;
 inline constexpr cambc::item_type opening_emblem = cambc::item_type::durability_emblem_of_health;

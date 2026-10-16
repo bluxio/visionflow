@@ -671,7 +671,25 @@ void Bot::bank() {
                     && attempt([&] { return me.consumables()[lock].count() > 0; }))
                     attempt([&] { return me.consumables()[lock].use(altar); });
             }
+            // Free vision on the bank so allies can dive enemy tributes later.
+            attempt([&] { return me.place_ward(altar); });
             if (attempt([&] { me.submit_gems(altar); return true; })) return;
+        }
+    }
+    // Don't waste the attack while walking gems in — smack whatever is in reach.
+    const auto reach = me.attack_tiles();
+    for (auto& camp : bc::vision::camps()) {
+        if (is_alive_unit(camp) && reach.is_set(camp.position()) && attack_with_reset(camp)) {
+            cast_offensive(camp, true);
+            break;
+        }
+    }
+    for (auto& enemy : bc::vision::champions(team::enemy)) {
+        if (is_alive_unit(enemy) && reach.is_set(enemy.position())) {
+            stun_threat({&enemy}, enemy, true);
+            attack_with_reset(enemy);
+            cast_offensive(enemy, true);
+            break;
         }
     }
     advance_towards(goals);
