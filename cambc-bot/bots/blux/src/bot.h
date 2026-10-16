@@ -48,6 +48,7 @@ class Bot {
     cambc::vec2 home_center;
     cambc::vec2 enemy_center;
     cambc::bitboard terrain;
+    std::uint32_t safe_gem_value = 0;
 
     void init();
     void precompute_paths();

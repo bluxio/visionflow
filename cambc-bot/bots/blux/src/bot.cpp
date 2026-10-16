@@ -292,6 +292,10 @@ void Bot::init() {
     for (auto altar : altars) altar_approach |= tiles_around(altar, bc::constants::submit_gems_range);
 
     terrain = bc::map::walls() | bc::map::holes() | bc::map::altars() | bc::map::spawn_region(team::enemy);
+    safe_gem_value = 0;
+    for (const auto& info : groups)
+        if (!info.monolith) safe_gem_value += info.group.gem_value();
+
     {
         const auto spawn = bc::map::spawn_region(team::ally).positions();
         vec2 sum{};
@@ -361,21 +365,33 @@ int Bot::altar_distance(vec2 from) const {
     return path_or(altar_path, from, nearest);
 }
 
-// vision::camp_groups() reloads the whole map layout every call, so test our cached groups instead.
+// group.state() re-queries vision every call, so only poll the nearest visible groups while fuel lasts.
 void Bot::observe_groups() {
     const auto round = bc::round_number();
+    const auto here = bc::self().position();
     const auto visible = bc::vision::visible_tiles();
+    std::vector<std::pair<int, Group*>> nearby;
+    nearby.reserve(groups.size());
     for (auto& info : groups) {
         if (std::ranges::none_of(info.spawns, [&](vec2 tile) { return visible.is_set(tile); })) continue;
+        nearby.emplace_back(distance(here, info.center), &info);
+    }
+    std::ranges::sort(nearby, {}, &std::pair<int, Group*>::first);
+    // Full refresh when fuel is healthy; under pressure only the closest camps.
+    const int limit = bc::fuel_remaining() < observe_fuel_reserve ? max_group_polls : static_cast<int>(nearby.size());
+    int polled = 0;
+    for (auto& [_, info] : nearby) {
+        if (polled >= limit || bc::fuel_remaining() < movement_fuel_reserve) break;
+        ++polled;
         attempt([&] {
-            const auto state = info.group.state();
+            const auto state = info->group.state();
             // Standing on a spawn tile freezes the timer at zero, so always look at least a round ahead.
             if (const auto* respawning = std::get_if<bc::map::camp_group_respawning>(&state)) {
-                info.respawn_until = round + static_cast<std::uint32_t>(std::max(respawning->timer, 1));
-                info.reward_ready = false;
+                info->respawn_until = round + static_cast<std::uint32_t>(std::max(respawning->timer, 1));
+                info->reward_ready = false;
             } else {
-                info.respawn_until = 0;
-                info.reward_ready = std::holds_alternative<bc::map::camp_group_reward_available>(state);
+                info->respawn_until = 0;
+                info->reward_ready = std::holds_alternative<bc::map::camp_group_reward_available>(state);
             }
             return true;
         });
@@ -389,7 +405,10 @@ bool Bot::target_is_valid(int target) const {
 }
 
 bool Bot::monolith_allowed(const Group& info) const {
-    return !info.monolith || bc::round_number() >= monolith_from_round;
+    if (!info.monolith) return true;
+    // Contest-like maps only drop gems from monoliths — take them or lose on gems.
+    if (safe_gem_value < monolith_gem_fallback) return true;
+    return bc::round_number() >= monolith_from_round;
 }
 
 int Bot::choose_target(const std::vector<int>& taken) const {
@@ -409,6 +428,7 @@ int Bot::choose_target(const std::vector<int>& taken) const {
             * static_cast<float>(altar_distance(info.center));
         float value = info.group.gem_value() + 0.3f * info.group.gold_value();
         if (info.strength <= 0) value *= cluster_bonus;
+        if (info.monolith && safe_gem_value < monolith_gem_fallback) value *= 2.0f;
         float score = value / (travel_weight * travel + clear_time + danger + banking + bc::constants::capture_time + 5.0f);
         if (distance(info.center, enemy_center) < distance(info.center, home_center)) score *= enemy_half_factor;
         if constexpr (seed != 0) {
