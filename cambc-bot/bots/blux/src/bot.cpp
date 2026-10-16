@@ -407,8 +407,9 @@ int Bot::choose_target(const std::vector<int>& taken) const {
         const float danger = info.strength * clear_time * danger_weight;
         const float banking = altar_weight * static_cast<float>(info.group.gem_value()) / static_cast<float>(bank_gem_threshold)
             * static_cast<float>(altar_distance(info.center));
-        const float value = info.group.gem_value() + 0.3f * info.group.gold_value();
-        float score = value / (travel + clear_time + danger + banking + bc::constants::capture_time + 5.0f);
+        float value = info.group.gem_value() + 0.3f * info.group.gold_value();
+        if (info.strength <= 0) value *= cluster_bonus;
+        float score = value / (travel_weight * travel + clear_time + danger + banking + bc::constants::capture_time + 5.0f);
         if (distance(info.center, enemy_center) < distance(info.center, home_center)) score *= enemy_half_factor;
         if constexpr (seed != 0) {
             std::uint64_t mix = (static_cast<std::uint64_t>(seed) << 32) ^ (static_cast<std::uint64_t>(i) << 16) ^ (round / 25);
@@ -483,8 +484,17 @@ void Bot::shop() const {
     auto& me = bc::self();
     for (int purchases = 0; purchases < 20; ++purchases) {
         const auto item = next_item();
-        if (!attempt([&] { return me.can_buy(item); })) return;
-        if (!attempt([&] { me.buy(item); return true; })) return;
+        if (!attempt([&] { return me.can_buy(item); })) break;
+        if (!attempt([&] { me.buy(item); return true; })) break;
+    }
+    if constexpr (buy_altar_locks) {
+        const auto lock = bc::consumable_type::altar_lock;
+        if (attempt([&] {
+            return me.gold_count() >= lock_gold_reserve
+                && me.can_buy(lock)
+                && me.consumables()[lock].count() == 0;
+        }))
+            attempt([&] { me.buy(lock); return true; });
     }
 }
 
@@ -509,7 +519,11 @@ bool Bot::skirmish(const View& view) {
 
     const bool carrying = me.gem_count() >= cautious_gem_count;
     const float required = carrying ? cautious_engage_power_ratio : engage_power_ratio;
-    const bool favourable = ours >= theirs * required && vitality() >= flee_health_ratio;
+    const bool diving_tribute = std::ranges::any_of(nearby, [&](const auto* enemy) {
+        return attempt([&] { return enemy->is_submitting_gems(); });
+    });
+    const bool favourable = diving_tribute
+        || (ours >= theirs * required && vitality() >= flee_health_ratio);
     // Walking away from a melee champion just hands it free hits.
     const bool cornered = ours * hopeless_power_ratio >= theirs && std::ranges::any_of(nearby, [&](const auto* enemy) {
         return enemy->attack_range() <= 1 && distance(enemy->position(), here) <= 2;
@@ -545,6 +559,7 @@ bool Bot::skirmish(const View& view) {
     }
 
     raise_beacon(here);
+    if (fight_priority != 0) attempt([&] { me.set_priority(fight_priority); return true; });
     if (secure_kill(nearby, true)) {
         if (in_reach) attack_with_reset(*in_reach);
         return true;
@@ -580,7 +595,8 @@ float Bot::focus_priority(const bc::champion& enemy) const {
     const auto type = query_or(bc::champion_type::ryth, [&] { return enemy.champion_name(); });
     if (type == bc::champion_type::cassi || type == bc::champion_type::issac) score *= linked_focus_bonus;
     score -= 10.0f * static_cast<float>(query_or(0u, [&] { return enemy.gem_count(); }));
-    if (is_channeling(enemy)) score -= 300.0f;
+    if (attempt([&] { return enemy.is_submitting_gems(); })) score -= 800.0f;
+    else if (is_channeling(enemy)) score -= 300.0f;
     return score;
 }
 
@@ -589,6 +605,16 @@ void Bot::raise_beacon(vec2 where) const {
     const std::array<std::uint8_t, 4> beacon{static_cast<std::uint8_t>(where.x), static_cast<std::uint8_t>(where.y),
         static_cast<std::uint8_t>(bc::round_number() & 0xFF), 1};
     bc::shared_memory.write(beacon_offset, std::span{beacon});
+}
+
+
+// Cassi and Issac share one life, so a partner left alone is a free double kill for the enemy.
+bool Bot::stick_with_partner() {
+    if (partner_leash <= 0 || !partner || !is_alive_unit(*partner)) return false;
+    auto& me = bc::self();
+    const int gap = distance(me.position(), partner->position());
+    if (gap <= partner_leash) return false;
+    return advance_towards(tiles_around(partner->position(), std::max(partner_leash / 2, 1)));
 }
 
 bool Bot::answer_beacon() {
@@ -620,7 +646,14 @@ bool Bot::should_bank(int target) const {
 
     if (gems >= bank_gem_threshold) return true;
     if (bc::round_number() + endgame_rounds >= bc::constants::max_rounds) return true;
-    return std::ranges::any_of(altars, [&](vec2 altar) { return distance(here, altar) <= nearby_altar_distance; });
+    const int to_altar = altar_distance(here);
+    if (to_altar <= nearby_altar_distance) return true;
+    // Drop gems on the way to the next camp when an altar is a short detour.
+    if (detour_altar_distance > 0 && gems >= cautious_gem_count && target >= 0) {
+        const int to_camp = travel_to(target, here);
+        if (to_altar <= detour_altar_distance && to_altar * 2 <= to_camp + 2) return true;
+    }
+    return false;
 }
 
 void Bot::bank() {
@@ -631,9 +664,15 @@ void Bot::bank() {
             goals &= ~tiles_around(altar, bc::constants::submit_gems_range);
             continue;
         }
-        if (distance(me.position(), altar) <= bc::constants::submit_gems_range
-            && attempt([&] { me.submit_gems(altar); return true; }))
-            return;
+        if (distance(me.position(), altar) <= bc::constants::submit_gems_range) {
+            if constexpr (buy_altar_locks) {
+                const auto lock = bc::consumable_type::altar_lock;
+                if (!bc::vision::has_altar_lock(altar)
+                    && attempt([&] { return me.consumables()[lock].count() > 0; }))
+                    attempt([&] { return me.consumables()[lock].use(altar); });
+            }
+            if (attempt([&] { me.submit_gems(altar); return true; })) return;
+        }
     }
     advance_towards(goals);
 }
@@ -674,6 +713,7 @@ void Bot::retreat_or_recall(const View& view) {
 
 Bot::Activity Bot::farm(int target, const View& view) {
     auto& me = bc::self();
+    if (farm_priority != fight_priority) attempt([&] { me.set_priority(farm_priority); return true; });
     if (target < 0) return Activity::idle;
     const auto& info = groups[static_cast<std::size_t>(target)];
 
@@ -813,6 +853,7 @@ Bot::Activity Bot::decide() {
         bank();
         return Activity::banking;
     }
+    if (stick_with_partner()) return Activity::travelling;
     if (answer_beacon()) return Activity::fighting;
     return farm(target, view);
 }

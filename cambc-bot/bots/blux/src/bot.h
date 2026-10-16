@@ -68,6 +68,7 @@ class Bot {
     float focus_priority(const cambc::champion& enemy) const;
     void raise_beacon(cambc::vec2 where) const;
     bool answer_beacon();
+    bool stick_with_partner();
     bool should_bank(int target) const;
     void bank();
     void retreat_or_recall(const View& view);

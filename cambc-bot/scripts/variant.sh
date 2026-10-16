@@ -17,5 +17,7 @@ for override in "$@"; do
     key="${override%% =*}"
     value="${override#*= }"
     grep -q " $key = " "bots/$name/src/tuning.h" || { echo "unknown knob: $key" >&2; exit 1; }
-    sed -i '' -E "s/( $key = )[^;]*;/\1$value;/" "bots/$name/src/tuning.h"
+    # GNU sed wants -i, BSD sed wants -i ''; write through a temp so both work.
+    sed -E "s/( $key = )[^;]*;/\1$value;/" "bots/$name/src/tuning.h" > "bots/$name/src/tuning.h.tmp"
+    mv "bots/$name/src/tuning.h.tmp" "bots/$name/src/tuning.h"
 done
