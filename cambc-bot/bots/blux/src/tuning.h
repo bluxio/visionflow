@@ -7,7 +7,7 @@
 namespace tuning {
 using enum cambc::champion_draft;
 // Picks are revealed simultaneously and duplicates across teams are allowed, so a fixed order is safe.
-inline constexpr std::array draft_priority = { cassi_and_issac, stellar, ren, tavi, varg, ryth, vendetta, willow, vesper_vale, marcella, prism };
+inline constexpr std::array draft_priority = { cassi_and_issac, stellar, ren, vendetta, varg, tavi, ryth, willow, vesper_vale, marcella, prism };
 // Bought until the emblem completes, then each champion buys its main stat.
 inline constexpr cambc::item_type opening_shard = cambc::item_type::durability_shard_of_health;
 inline constexpr cambc::item_type opening_emblem = cambc::item_type::durability_emblem_of_health;
@@ -48,6 +48,9 @@ inline constexpr int regroup_dead_count = 100;
 inline constexpr float enemy_half_factor = 1.0f;
 inline constexpr int recall_walk_distance = 6;
 inline constexpr float hopeless_power_ratio = 2.0f;
+inline constexpr int dive_melee_range = 3;
+inline constexpr float dive_engage_power_ratio = 1.35f;
+inline constexpr float dive_focus_bonus = 0.55f;
 inline constexpr std::uint64_t path_fuel_reserve = 50000;
 inline constexpr bool enable_path_precompute = false;
 inline constexpr std::uint64_t panic_fuel_reserve = 25000;

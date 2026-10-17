@@ -537,13 +537,22 @@ bool Bot::skirmish(const View& view) {
         if (distance(ally.position(), here) <= ally_support_range) ours += combat_power(ally);
 
     const bool carrying = me.gem_count() >= cautious_gem_count;
-    const float required = carrying ? cautious_engage_power_ratio : engage_power_ratio;
+    // Vendetta/Varg-style dive: melee in your face while you're farming alone.
+    const int melee_divers = static_cast<int>(std::ranges::count_if(nearby, [&](const auto* enemy) {
+        return enemy->attack_range() <= 1 && distance(enemy->position(), here) <= dive_melee_range;
+    }));
+    const int local_allies = static_cast<int>(std::ranges::count_if(view.allies, [&](const auto& ally) {
+        return distance(ally.position(), here) <= ally_support_range;
+    }));
+    const bool under_dive = melee_divers > 0 && local_allies < melee_divers;
+    float required = carrying ? cautious_engage_power_ratio : engage_power_ratio;
+    if (under_dive) required = std::max(required, dive_engage_power_ratio);
     const bool diving_tribute = std::ranges::any_of(nearby, [&](const auto* enemy) {
         return attempt([&] { return enemy->is_submitting_gems(); });
     });
     const bool favourable = diving_tribute
         || (ours >= theirs * required && vitality() >= flee_health_ratio);
-    // Walking away from a melee champion just hands it free hits.
+    // Walking away from a melee champion just hands it free hits — only stand if we can win.
     const bool cornered = ours * hopeless_power_ratio >= theirs && std::ranges::any_of(nearby, [&](const auto* enemy) {
         return enemy->attack_range() <= 1 && distance(enemy->position(), here) <= 2;
     });
@@ -567,7 +576,9 @@ bool Bot::skirmish(const View& view) {
             danger |= tiles_around(enemy->position(), std::max(enemy->attack_range(), 1) + 2);
             reach |= tiles_around(enemy->position(), std::max(enemy->attack_range(), 1) + 1);
         }
-        if (!danger.is_set(here)) return false;
+        // Melee divers close the gap — don't keep farming just because you're one tile outside their ring.
+        if (!danger.is_set(here) && !under_dive) return false;
+        raise_beacon(here);
         if (flee_home) {
             if (advance_towards(bc::map::spawn_region(team::ally), true, &reach)) return true;
         } else {
@@ -575,6 +586,7 @@ bool Bot::skirmish(const View& view) {
             safe &= tiles_around(here, 6);
             if (advance_towards(safe)) return true;
         }
+        if (under_dive) return true; // spent the turn trying to disengage
     }
 
     raise_beacon(here);
@@ -613,6 +625,8 @@ float Bot::focus_priority(const bc::champion& enemy) const {
     float score = query_or(1e9f, [&] { return enemy.health(); });
     const auto type = query_or(bc::champion_type::ryth, [&] { return enemy.champion_name(); });
     if (type == bc::champion_type::cassi || type == bc::champion_type::issac) score *= linked_focus_bonus;
+    // Dive threats die first — one Vendetta in your backline ends the farm.
+    if (type == bc::champion_type::vendetta || type == bc::champion_type::varg) score *= dive_focus_bonus;
     score -= 10.0f * static_cast<float>(query_or(0u, [&] { return enemy.gem_count(); }));
     if (attempt([&] { return enemy.is_submitting_gems(); })) score -= 800.0f;
     else if (is_channeling(enemy)) score -= 300.0f;
