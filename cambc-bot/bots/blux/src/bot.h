@@ -70,6 +70,7 @@ class Bot {
     void raise_beacon(cambc::vec2 where) const;
     bool answer_beacon();
     bool stick_with_partner();
+    bool alone_and_threatened(const View& view) const;
     bool should_bank(int target) const;
     void bank();
     void retreat_or_recall(const View& view);

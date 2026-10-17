@@ -642,6 +642,17 @@ void Bot::raise_beacon(vec2 where) const {
 
 
 // Cassi and Issac share one life, so a partner left alone is a free double kill for the enemy.
+bool Bot::alone_and_threatened(const View& view) const {
+    const auto here = bc::self().position();
+    const bool foe = std::ranges::any_of(view.enemies, [&](const auto& e) {
+        return distance(e.position(), here) <= skirmish_range;
+    });
+    if (!foe) return false;
+    return std::ranges::none_of(view.allies, [&](const auto& a) {
+        return distance(a.position(), here) <= ally_support_range;
+    });
+}
+
 bool Bot::stick_with_partner() {
     if (partner_leash <= 0 || !partner || !is_alive_unit(*partner)) return false;
     auto& me = bc::self();
@@ -890,5 +901,22 @@ Bot::Activity Bot::decide() {
     }
     if (!low_fuel && stick_with_partner()) return Activity::travelling;
     if (!low_fuel && answer_beacon()) return Activity::fighting;
+    // Don't greed camps alone when dive comps are on the map — regroup on the beacon.
+    if (!low_fuel && alone_and_threatened(view)) {
+        raise_beacon(me.position());
+        if (me.gem_count() > 0 && should_bank(target)) {
+            bank();
+            return Activity::banking;
+        }
+        // Walk toward nearest ally if any are visible further out.
+        if (!view.allies.empty()) {
+            const auto* buddy = &*std::ranges::min_element(view.allies, {}, [&](const auto& a) {
+                return distance(me.position(), a.position());
+            });
+            if (distance(me.position(), buddy->position()) > ally_support_range
+                && advance_towards(tiles_around(buddy->position(), 2)))
+                return Activity::travelling;
+        }
+    }
     return farm(target, view);
 }
