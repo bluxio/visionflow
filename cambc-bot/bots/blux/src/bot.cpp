@@ -377,11 +377,10 @@ void Bot::observe_groups() {
         nearby.emplace_back(distance(here, info.center), &info);
     }
     std::ranges::sort(nearby, {}, &std::pair<int, Group*>::first);
-    // Full refresh when fuel is healthy; under pressure only the closest camps.
-    const int limit = bc::fuel_remaining() < observe_fuel_reserve ? max_group_polls : static_cast<int>(nearby.size());
+    // state() re-queries vision each call — hard-cap how many we touch per turn.
     int polled = 0;
     for (auto& [_, info] : nearby) {
-        if (polled >= limit || bc::fuel_remaining() < movement_fuel_reserve) break;
+        if (polled >= max_group_polls || bc::fuel_remaining() < observe_fuel_reserve) break;
         ++polled;
         attempt([&] {
             const auto state = info->group.state();
@@ -691,25 +690,8 @@ void Bot::bank() {
                     && attempt([&] { return me.consumables()[lock].count() > 0; }))
                     attempt([&] { return me.consumables()[lock].use(altar); });
             }
-            // Free vision on the bank so allies can dive enemy tributes later.
             attempt([&] { return me.place_ward(altar); });
             if (attempt([&] { me.submit_gems(altar); return true; })) return;
-        }
-    }
-    // Don't waste the attack while walking gems in — smack whatever is in reach.
-    const auto reach = me.attack_tiles();
-    for (auto& camp : bc::vision::camps()) {
-        if (is_alive_unit(camp) && reach.is_set(camp.position()) && attack_with_reset(camp)) {
-            cast_offensive(camp, true);
-            break;
-        }
-    }
-    for (auto& enemy : bc::vision::champions(team::enemy)) {
-        if (is_alive_unit(enemy) && reach.is_set(enemy.position())) {
-            stun_threat({&enemy}, enemy, true);
-            attack_with_reset(enemy);
-            cast_offensive(enemy, true);
-            break;
         }
     }
     advance_towards(goals);
@@ -812,7 +794,7 @@ Bot::Activity Bot::farm(int target, const View& view) {
 void Bot::play_turn() {
     if (!initialised) init();
     const auto activity = decide();
-    precompute_paths();
+    if constexpr (enable_path_precompute) precompute_paths();
     if constexpr (log_activity) {
         static Activity previous = Activity::idle;
         static std::string context;
@@ -866,17 +848,18 @@ Bot::Activity Bot::decide() {
     for (auto& ally : bc::vision::champions(team::ally))
         if (!(ally == me) && is_alive_unit(ally)) view.allies.push_back(std::move(ally));
 
-    use_support(view.allies, view.enemies, view.camps);
+    const bool low_fuel = bc::fuel_remaining() < panic_fuel_reserve;
+    if (!low_fuel) use_support(view.allies, view.enemies, view.camps);
 
     if (at_spawn && (me.health() < me.max_health() * leave_spawn_health_ratio || dead_allies >= regroup_dead_count)) {
-        skirmish(view);
+        if (!low_fuel) skirmish(view);
         return Activity::healing;
     }
 
     // Hold a capture in progress unless an enemy forces a fight.
     const int standing_on = group_of(here);
     if (standing_on >= 0 && groups[static_cast<std::size_t>(standing_on)].reward_ready) {
-        skirmish(view);
+        if (!low_fuel) skirmish(view);
         return Activity::capturing;
     }
 
@@ -884,14 +867,14 @@ Bot::Activity Bot::decide() {
         retreat_or_recall(view);
         return Activity::recalling;
     }
-    if (skirmish(view)) return Activity::fighting;
+    if (!low_fuel && skirmish(view)) return Activity::fighting;
 
     const int target = current_target(view);
     if (should_bank(target)) {
         bank();
         return Activity::banking;
     }
-    if (stick_with_partner()) return Activity::travelling;
-    if (answer_beacon()) return Activity::fighting;
+    if (!low_fuel && stick_with_partner()) return Activity::travelling;
+    if (!low_fuel && answer_beacon()) return Activity::fighting;
     return farm(target, view);
 }
