@@ -429,6 +429,7 @@ int Bot::choose_target(const std::vector<int>& taken) const {
         if (info.strength <= 0) value *= cluster_bonus;
         if (info.monolith && safe_gem_value < monolith_gem_fallback) value *= 2.0f;
         float score = value / (travel_weight * travel + clear_time + danger + banking + bc::constants::capture_time + 5.0f);
+        if (travel <= nearest_camp_bonus_range) score *= nearest_camp_bonus;
         if (distance(info.center, enemy_center) < distance(info.center, home_center)) score *= enemy_half_factor;
         if constexpr (seed != 0) {
             std::uint64_t mix = (static_cast<std::uint64_t>(seed) << 32) ^ (static_cast<std::uint64_t>(i) << 16) ^ (round / 25);
@@ -644,10 +645,11 @@ void Bot::raise_beacon(vec2 where) const {
 // Cassi and Issac share one life, so a partner left alone is a free double kill for the enemy.
 bool Bot::alone_and_threatened(const View& view) const {
     const auto here = bc::self().position();
-    const bool foe = std::ranges::any_of(view.enemies, [&](const auto& e) {
-        return distance(e.position(), here) <= skirmish_range;
+    // Only bail on real melee dive — any visible enemy was making us walk instead of farm.
+    const bool diver = std::ranges::any_of(view.enemies, [&](const auto& e) {
+        return e.attack_range() <= 1 && distance(e.position(), here) <= dive_melee_range;
     });
-    if (!foe) return false;
+    if (!diver) return false;
     return std::ranges::none_of(view.allies, [&](const auto& a) {
         return distance(a.position(), here) <= ally_support_range;
     });
