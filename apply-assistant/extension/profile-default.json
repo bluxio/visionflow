@@ -1,0 +1,99 @@
+{
+  "name": "Bolu Akande",
+  "email": "",
+  "phone": "",
+  "location": "Dallas, TX",
+  "linkedin": "",
+  "portfolio": "",
+  "github": "",
+  "targetRoles": [
+    "Software Engineer Intern",
+    "AI Engineer Intern",
+    "Applied AI Intern",
+    "Full Stack Intern"
+  ],
+  "skills": [
+    "TypeScript",
+    "JavaScript",
+    "Python",
+    "Next.js",
+    "React",
+    "LLM APIs (Gemini)",
+    "Agentic workflows",
+    "Prompt engineering",
+    "REST APIs",
+    "Supabase"
+  ],
+  "voice": {
+    "tone": "direct, specific, founder-curious, not salesy",
+    "avoid": [
+      "I am passionate about",
+      "leverage synergies",
+      "excited to grow with the team",
+      "as a highly motivated student"
+    ],
+    "prefer": [
+      "concrete project names",
+      "what I built and why",
+      "customer/user impact",
+      "fast iteration"
+    ]
+  },
+  "projects": [
+    {
+      "name": "LocalLead",
+      "summary": "AI-assisted outreach / local business opportunity tool for students and founders.",
+      "stack": ["Next.js", "TypeScript", "LLM APIs"],
+      "bullets": [
+        "Built productized workflows that turn local business research into actionable outreach",
+        "Focused on speed-to-value: short loops from idea → tool → usable output"
+      ]
+    },
+    {
+      "name": "Dental Ops Copilot",
+      "summary": "Front-desk AI copilot that extracts structured patient referral data from faxes, PDFs, and emails.",
+      "stack": ["Next.js", "TypeScript", "Gemini"],
+      "bullets": [
+        "Designed Gemini extraction pipeline that turns messy referral docs into structured intake fields",
+        "Built intake + dashboard UX so staff can review, confirm, and act quickly"
+      ]
+    },
+    {
+      "name": "Insurance Verification QA",
+      "summary": "AI tool that analyzes insurance text and surfaces coverage risks, missing fields, and call checklists.",
+      "stack": ["Next.js", "Gemini", "TypeScript"],
+      "bullets": [
+        "Built structured extraction for coverage summaries, risk flags, and PMS-ready paste text",
+        "Turned ambiguous insurance language into operational next steps"
+      ]
+    },
+    {
+      "name": "Opp Scout",
+      "summary": "Opportunity-source map for students — sources and playbooks, not another noisy job board.",
+      "stack": ["Next.js", "TypeScript"],
+      "bullets": [
+        "Shipped a source-first model (CodePath, communities, campus channels) with goal-based direction",
+        "Added pipeline tracking so students save and follow through on applications"
+      ]
+    },
+    {
+      "name": "VisionFlow / Workout Form Coach",
+      "summary": "Upload squat video → pose analysis, rep counts, and form feedback.",
+      "stack": ["Next.js", "Python", "computer vision"],
+      "bullets": [
+        "Built full stack from phone video upload to analysis API and history",
+        "Deployed end-to-end product with concrete user feedback loop"
+      ]
+    }
+  ],
+  "education": {
+    "school": "",
+    "degree": "Computer Science / related",
+    "notes": "Fill in school, graduation year, CodePath, and relevant coursework."
+  },
+  "defaultAnswers": {
+    "workAuthorization": "Authorized to work in the United States",
+    "sponsorship": "Clarify based on your situation",
+    "availability": "Available for remote internship; Dallas timezone (CT)"
+  }
+}

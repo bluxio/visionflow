@@ -1,0 +1,17 @@
+[package]
+name = "bot"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+cambc = { path = "{{BC_SDK}}/rust" }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = "fat"
+codegen-units = 1

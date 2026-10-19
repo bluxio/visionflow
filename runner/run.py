@@ -206,7 +206,7 @@ def main() -> None:
     backend_url = os.getenv("BACKEND_URL", "http://localhost:8000/next_action")
     demo_app_url = os.getenv("DEMO_APP_URL", "http://localhost:8080")
     goal_mode = os.getenv("GOAL_MODE", "demo_form").strip().lower()
-    max_steps = int(os.getenv("MAX_STEPS", "30"))
+    max_steps = int(os.getenv("MAX_STEPS", "12"))
     slow_ms = int(os.getenv("SLOW_MS", "300"))
     settle_ms = int(os.getenv("SETTLE_MS", "250"))
     fallback_scroll_limit = int(os.getenv("FALLBACK_SCROLL_LIMIT", "5"))
