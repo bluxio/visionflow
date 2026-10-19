@@ -8,7 +8,7 @@ namespace bc = cambc;
 
 void play_draft() {
     const auto chosen = bc::draft::current_draft(bc::team::ally);
-    if (chosen.empty()) {
+    if constexpr (tuning::log_activity) if (chosen.empty()) {
         std::cout << "MAP " << bc::map::width() << "x" << bc::map::height() << " team " << bc::draft::team_size()
                   << " spawn " << bc::to_string(bc::map::spawn_region(bc::team::ally).positions()[0])
                   << " enemy " << bc::to_string(bc::map::spawn_region(bc::team::enemy).positions()[0]) << "\n";

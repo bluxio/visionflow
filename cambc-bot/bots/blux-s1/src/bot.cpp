@@ -3,11 +3,13 @@
 #include "tuning.h"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <exception>
 #include <iostream>
 #include <optional>
 #include <span>
+#include <string>
 #include <type_traits>
 #include <variant>
 
@@ -100,23 +102,31 @@ std::optional<bc::ability> ready_ability(bool (bc::ability::*kind)() const noexc
     return std::nullopt;
 }
 
-// Walk one step (after an optional dash) towards the nearest goal tile.
-bool advance_towards(bc::bitboard goals, bool allow_dash = true) {
+// Walk one step (after an optional dash) towards the nearest goal tile, routing around `avoid` when possible.
+bool advance_towards(bc::bitboard goals, bool allow_dash = true, const bc::bitboard* avoid = nullptr) {
     auto& me = bc::self();
     const auto here = me.position();
     if (goals.is_set(here) || bc::fuel_remaining() < movement_fuel_reserve) return false;
 
-    const auto dash = allow_dash ? ready_ability(&bc::ability::is_dash) : std::nullopt;
+    const bool can_dash = allow_dash && bc::fuel_remaining() >= dash_fuel_reserve;
+    const auto dash = can_dash ? ready_ability(&bc::ability::is_dash) : std::nullopt;
     if (!me.can_move() && !dash) return false;
 
     const auto blocked = blocked_tiles();
     goals &= ~blocked | bc::vision::camp_tiles();
     if (goals.is_empty()) return false;
 
-    const auto path_walls = blocked & ~goals;
+    auto path_walls = blocked & ~goals;
     bc::distance_field field;
     bc::bitboard visited;
-    field.compute_to(path_walls, goals, tiles_around(here, 0), visited);
+    // Detours are expensive — only when we have fuel headroom.
+    if (avoid && bc::fuel_remaining() >= dash_fuel_reserve) {
+        auto detour = path_walls | (*avoid & ~goals);
+        detour.set(here, false);
+        field.compute_to(detour, goals, tiles_around(here, 0), visited);
+    }
+    if (!avoid || field.get(here) == bc::distance_field::unreachable)
+        field.compute_to(path_walls, goals, tiles_around(here, 0), visited);
 
     if (dash && field.get(here) > 2) {
         const auto dash_walls = blocked & ~bc::map::holes();
@@ -124,7 +134,7 @@ bool advance_towards(bc::bitboard goals, bool allow_dash = true) {
         for (auto tile : dash_walls.reachable_tiles(here, 2).positions())
             if (!blocked.is_set(tile) && field.get(tile) < field.get(landing)) landing = tile;
         if (field.get(landing) + 2 <= field.get(here) && attempt([&] { return dash->use(landing); })) {
-            advance_towards(goals, false);
+            advance_towards(goals, false, avoid);
             return true;
         }
     }
@@ -284,6 +294,20 @@ void Bot::init() {
     for (auto altar : altars) altar_approach |= tiles_around(altar, bc::constants::submit_gems_range);
 
     terrain = bc::map::walls() | bc::map::holes() | bc::map::altars() | bc::map::spawn_region(team::enemy);
+    safe_gem_value = 0;
+    for (const auto& info : groups)
+        if (!info.monolith) safe_gem_value += info.group.gem_value();
+
+    {
+        const auto spawn = bc::map::spawn_region(team::ally).positions();
+        vec2 sum{};
+        for (auto tile : spawn) sum += tile;
+        home_center = sum / static_cast<std::int32_t>(std::max<std::size_t>(spawn.size(), 1));
+        const auto theirs = bc::map::spawn_region(team::enemy).positions();
+        vec2 total{};
+        for (auto tile : theirs) total += tile;
+        enemy_center = total / static_cast<std::int32_t>(std::max<std::size_t>(theirs.size(), 1));
+    }
 
     // Contiguous squads in handle order keep Cassi and Issac (drafted together) side by side.
     auto allies = bc::champions(team::ally);
@@ -293,7 +317,7 @@ void Bot::init() {
     });
     const int team_size = static_cast<int>(allies.size());
     squad_count = std::clamp(team_size / min_squad_size, 1, max_squads);
-    const auto self_index = static_cast<int>(std::find(allies.begin(), allies.end(), me) - allies.begin());
+    self_index = static_cast<int>(std::find(allies.begin(), allies.end(), me) - allies.begin());
     squad = self_index * squad_count / team_size;
     for (const auto& ally : allies) {
         const auto type = ally.champion_name();
@@ -326,6 +350,7 @@ void Bot::precompute_paths() {
         path.emplace();
         attempt([&] { path->compute(terrain & ~roots, roots, visited); return true; });
     };
+    if (!home_path) return compute(home_path, bc::map::spawn_region(team::ally));
     if (!altar_path) return compute(altar_path, altar_approach & ~terrain);
     for (auto& info : groups)
         if (!info.path) return compute(info.path, info.tiles);
@@ -342,21 +367,34 @@ int Bot::altar_distance(vec2 from) const {
     return path_or(altar_path, from, nearest);
 }
 
-// vision::camp_groups() reloads the whole map layout every call, so test our cached groups instead.
+// group.state() re-queries vision every call, so only poll the nearest visible groups while fuel lasts.
 void Bot::observe_groups() {
     const auto round = bc::round_number();
+    // state() costs a full vision query each time — skip alternate turns when the map is dense.
+    if (groups.size() > 12 && (round & 1u) != 0 && bc::fuel_remaining() < observe_fuel_reserve + 20000)
+        return;
+    const auto here = bc::self().position();
     const auto visible = bc::vision::visible_tiles();
+    std::vector<std::pair<int, Group*>> nearby;
+    nearby.reserve(groups.size());
     for (auto& info : groups) {
         if (std::ranges::none_of(info.spawns, [&](vec2 tile) { return visible.is_set(tile); })) continue;
+        nearby.emplace_back(distance(here, info.center), &info);
+    }
+    std::ranges::sort(nearby, {}, &std::pair<int, Group*>::first);
+    int polled = 0;
+    for (auto& [_, info] : nearby) {
+        if (polled >= max_group_polls || bc::fuel_remaining() < observe_fuel_reserve) break;
+        ++polled;
         attempt([&] {
-            const auto state = info.group.state();
+            const auto state = info->group.state();
             // Standing on a spawn tile freezes the timer at zero, so always look at least a round ahead.
             if (const auto* respawning = std::get_if<bc::map::camp_group_respawning>(&state)) {
-                info.respawn_until = round + static_cast<std::uint32_t>(std::max(respawning->timer, 1));
-                info.reward_ready = false;
+                info->respawn_until = round + static_cast<std::uint32_t>(std::max(respawning->timer, 1));
+                info->reward_ready = false;
             } else {
-                info.respawn_until = 0;
-                info.reward_ready = std::holds_alternative<bc::map::camp_group_reward_available>(state);
+                info->respawn_until = 0;
+                info->reward_ready = std::holds_alternative<bc::map::camp_group_reward_available>(state);
             }
             return true;
         });
@@ -370,7 +408,10 @@ bool Bot::target_is_valid(int target) const {
 }
 
 bool Bot::monolith_allowed(const Group& info) const {
-    return !info.monolith || bc::round_number() >= monolith_from_round;
+    if (!info.monolith) return true;
+    // Contest-like maps only drop gems from monoliths — take them or lose on gems.
+    if (safe_gem_value < monolith_gem_fallback) return true;
+    return bc::round_number() >= monolith_from_round;
 }
 
 int Bot::choose_target(const std::vector<int>& taken) const {
@@ -388,8 +429,12 @@ int Bot::choose_target(const std::vector<int>& taken) const {
         const float danger = info.strength * clear_time * danger_weight;
         const float banking = altar_weight * static_cast<float>(info.group.gem_value()) / static_cast<float>(bank_gem_threshold)
             * static_cast<float>(altar_distance(info.center));
-        const float value = info.group.gem_value() + 0.3f * info.group.gold_value();
-        float score = value / (travel + clear_time + danger + banking + bc::constants::capture_time + 5.0f);
+        float value = info.group.gem_value() + 0.3f * info.group.gold_value();
+        if (info.strength <= 0) value *= cluster_bonus;
+        if (info.monolith && safe_gem_value < monolith_gem_fallback) value *= 2.0f;
+        float score = value / (travel_weight * travel + clear_time + danger + banking + bc::constants::capture_time + 5.0f);
+        if (travel <= nearest_camp_bonus_range) score *= nearest_camp_bonus;
+        if (distance(info.center, enemy_center) < distance(info.center, home_center)) score *= enemy_half_factor;
         if constexpr (seed != 0) {
             std::uint64_t mix = (static_cast<std::uint64_t>(seed) << 32) ^ (static_cast<std::uint64_t>(i) << 16) ^ (round / 25);
             mix = (mix ^ (mix >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -463,8 +508,17 @@ void Bot::shop() const {
     auto& me = bc::self();
     for (int purchases = 0; purchases < 20; ++purchases) {
         const auto item = next_item();
-        if (!attempt([&] { return me.can_buy(item); })) return;
-        if (!attempt([&] { me.buy(item); return true; })) return;
+        if (!attempt([&] { return me.can_buy(item); })) break;
+        if (!attempt([&] { me.buy(item); return true; })) break;
+    }
+    if constexpr (buy_altar_locks) {
+        const auto lock = bc::consumable_type::altar_lock;
+        if (attempt([&] {
+            return me.gold_count() >= lock_gold_reserve
+                && me.can_buy(lock)
+                && me.consumables()[lock].count() == 0;
+        }))
+            attempt([&] { me.buy(lock); return true; });
     }
 }
 
@@ -488,10 +542,23 @@ bool Bot::skirmish(const View& view) {
         if (distance(ally.position(), here) <= ally_support_range) ours += combat_power(ally);
 
     const bool carrying = me.gem_count() >= cautious_gem_count;
-    const float required = carrying ? cautious_engage_power_ratio : engage_power_ratio;
-    const bool favourable = ours >= theirs * required && vitality() >= flee_health_ratio;
-    // Walking away from a melee champion just hands it free hits.
-    const bool cornered = std::ranges::any_of(nearby, [&](const auto* enemy) {
+    // Vendetta/Varg-style dive: melee in your face while you're farming alone.
+    const int melee_divers = static_cast<int>(std::ranges::count_if(nearby, [&](const auto* enemy) {
+        return enemy->attack_range() <= 1 && distance(enemy->position(), here) <= dive_melee_range;
+    }));
+    const int local_allies = static_cast<int>(std::ranges::count_if(view.allies, [&](const auto& ally) {
+        return distance(ally.position(), here) <= ally_support_range;
+    }));
+    const bool under_dive = melee_divers > 0 && local_allies < melee_divers;
+    float required = carrying ? cautious_engage_power_ratio : engage_power_ratio;
+    if (under_dive) required = std::max(required, dive_engage_power_ratio);
+    const bool diving_tribute = std::ranges::any_of(nearby, [&](const auto* enemy) {
+        return attempt([&] { return enemy->is_submitting_gems(); });
+    });
+    const bool favourable = diving_tribute
+        || (ours >= theirs * required && vitality() >= flee_health_ratio);
+    // Walking away from a melee champion just hands it free hits — only stand if we can win.
+    const bool cornered = ours * hopeless_power_ratio >= theirs && std::ranges::any_of(nearby, [&](const auto* enemy) {
         return enemy->attack_range() <= 1 && distance(enemy->position(), here) <= 2;
     });
 
@@ -509,15 +576,26 @@ bool Bot::skirmish(const View& view) {
     if (!favourable && !cornered) {
         stun_threat(nearby, *target, false);
         auto danger = empty_board();
-        for (const auto* enemy : nearby)
+        auto reach = empty_board();
+        for (const auto* enemy : nearby) {
             danger |= tiles_around(enemy->position(), std::max(enemy->attack_range(), 1) + 2);
-        if (!danger.is_set(here)) return false;
-        auto safe = ~danger;
-        safe &= tiles_around(here, 6);
-        if (advance_towards(safe)) return true;
+            reach |= tiles_around(enemy->position(), std::max(enemy->attack_range(), 1) + 1);
+        }
+        // Melee divers close the gap — don't keep farming just because you're one tile outside their ring.
+        if (!danger.is_set(here) && !under_dive) return false;
+        raise_beacon(here);
+        if (flee_home) {
+            if (advance_towards(bc::map::spawn_region(team::ally), true, &reach)) return true;
+        } else {
+            auto safe = ~danger;
+            safe &= tiles_around(here, 6);
+            if (advance_towards(safe)) return true;
+        }
+        if (under_dive) return true; // spent the turn trying to disengage
     }
 
     raise_beacon(here);
+    if (fight_priority != 0) attempt([&] { me.set_priority(fight_priority); return true; });
     if (secure_kill(nearby, true)) {
         if (in_reach) attack_with_reset(*in_reach);
         return true;
@@ -552,8 +630,11 @@ float Bot::focus_priority(const bc::champion& enemy) const {
     float score = query_or(1e9f, [&] { return enemy.health(); });
     const auto type = query_or(bc::champion_type::ryth, [&] { return enemy.champion_name(); });
     if (type == bc::champion_type::cassi || type == bc::champion_type::issac) score *= linked_focus_bonus;
+    // Dive threats die first — one Vendetta in your backline ends the farm.
+    if (type == bc::champion_type::vendetta || type == bc::champion_type::varg) score *= dive_focus_bonus;
     score -= 10.0f * static_cast<float>(query_or(0u, [&] { return enemy.gem_count(); }));
-    if (is_channeling(enemy)) score -= 300.0f;
+    if (attempt([&] { return enemy.is_submitting_gems(); })) score -= 800.0f;
+    else if (is_channeling(enemy)) score -= 300.0f;
     return score;
 }
 
@@ -562,6 +643,28 @@ void Bot::raise_beacon(vec2 where) const {
     const std::array<std::uint8_t, 4> beacon{static_cast<std::uint8_t>(where.x), static_cast<std::uint8_t>(where.y),
         static_cast<std::uint8_t>(bc::round_number() & 0xFF), 1};
     bc::shared_memory.write(beacon_offset, std::span{beacon});
+}
+
+
+// Cassi and Issac share one life, so a partner left alone is a free double kill for the enemy.
+bool Bot::alone_and_threatened(const View& view) const {
+    const auto here = bc::self().position();
+    // Only bail on real melee dive — any visible enemy was making us walk instead of farm.
+    const bool diver = std::ranges::any_of(view.enemies, [&](const auto& e) {
+        return e.attack_range() <= 1 && distance(e.position(), here) <= dive_melee_range;
+    });
+    if (!diver) return false;
+    return std::ranges::none_of(view.allies, [&](const auto& a) {
+        return distance(a.position(), here) <= ally_support_range;
+    });
+}
+
+bool Bot::stick_with_partner() {
+    if (partner_leash <= 0 || !partner || !is_alive_unit(*partner)) return false;
+    auto& me = bc::self();
+    const int gap = distance(me.position(), partner->position());
+    if (gap <= partner_leash) return false;
+    return advance_towards(tiles_around(partner->position(), std::max(partner_leash / 2, 1)));
 }
 
 bool Bot::answer_beacon() {
@@ -593,7 +696,14 @@ bool Bot::should_bank(int target) const {
 
     if (gems >= bank_gem_threshold) return true;
     if (bc::round_number() + endgame_rounds >= bc::constants::max_rounds) return true;
-    return std::ranges::any_of(altars, [&](vec2 altar) { return distance(here, altar) <= nearby_altar_distance; });
+    const int to_altar = altar_distance(here);
+    if (to_altar <= nearby_altar_distance) return true;
+    // Drop gems on the way to the next camp when an altar is a short detour.
+    if (detour_altar_distance > 0 && gems >= cautious_gem_count && target >= 0) {
+        const int to_camp = travel_to(target, here);
+        if (to_altar <= detour_altar_distance && to_altar * 2 <= to_camp + 2) return true;
+    }
+    return false;
 }
 
 void Bot::bank() {
@@ -604,34 +714,57 @@ void Bot::bank() {
             goals &= ~tiles_around(altar, bc::constants::submit_gems_range);
             continue;
         }
-        if (distance(me.position(), altar) <= bc::constants::submit_gems_range
-            && attempt([&] { me.submit_gems(altar); return true; }))
-            return;
+        if (distance(me.position(), altar) <= bc::constants::submit_gems_range) {
+            if constexpr (buy_altar_locks) {
+                const auto lock = bc::consumable_type::altar_lock;
+                if (!bc::vision::has_altar_lock(altar)
+                    && attempt([&] { return me.consumables()[lock].count() > 0; }))
+                    attempt([&] { return me.consumables()[lock].use(altar); });
+            }
+            attempt([&] { return me.place_ward(altar); });
+            if (attempt([&] { me.submit_gems(altar); return true; })) return;
+        }
     }
     advance_towards(goals);
 }
 
-// Step out of camp and enemy reach first, because damage cancels the recall channel.
+// Run for our own spawn, which enemies cannot enter, routing around anything that can hit us.
+// Recall instead when nothing is close enough to interrupt it and home is a long walk.
 void Bot::retreat_or_recall(const View& view) {
     auto& me = bc::self();
+    const auto here = me.position();
+    const auto home = bc::map::spawn_region(team::ally);
     auto danger = empty_board();
-    for (const auto& camp : view.camps)
-        if (camp.strength() > 0) danger |= tiles_around(camp.position(), camp_threat_range);
-    for (const auto& enemy : view.enemies) danger |= tiles_around(enemy.position(), enemy_threat_range);
+    auto reach = empty_board();
+    for (const auto& camp : view.camps) {
+        if (camp.strength() <= 0) continue;
+        danger |= tiles_around(camp.position(), camp_threat_range);
+        reach |= tiles_around(camp.position(), camp_threat_range);
+    }
+    for (const auto& enemy : view.enemies) {
+        danger |= tiles_around(enemy.position(), enemy_threat_range);
+        reach |= tiles_around(enemy.position(), std::max(enemy.attack_range(), 1) + 1);
+    }
 
-    if (!danger.is_set(me.position())) {
+    const int walk_home = path_or(home_path, here, distance(here, home_center));
+    if (!danger.is_set(here) && walk_home > recall_walk_distance) {
         attempt([&] { me.recall(); return true; });
         return;
     }
-    auto safe = ~danger;
-    safe &= tiles_around(me.position(), 6);
-    if (!advance_towards(safe))
-        for (const auto& enemy : view.enemies)
-            if (attack_with_reset(enemy)) break;
+    if (flee_home) {
+        if (advance_towards(home, true, &reach)) return;
+    } else {
+        auto safe = ~danger;
+        safe &= tiles_around(here, 6);
+        if (advance_towards(safe)) return;
+    }
+    for (const auto& enemy : view.enemies)
+        if (attack_with_reset(enemy)) break;
 }
 
 Bot::Activity Bot::farm(int target, const View& view) {
     auto& me = bc::self();
+    if (farm_priority != fight_priority) attempt([&] { me.set_priority(farm_priority); return true; });
     if (target < 0) return Activity::idle;
     const auto& info = groups[static_cast<std::size_t>(target)];
 
@@ -692,8 +825,19 @@ Bot::Activity Bot::farm(int target, const View& view) {
 void Bot::play_turn() {
     if (!initialised) init();
     const auto activity = decide();
-    precompute_paths();
+    if constexpr (enable_path_precompute) precompute_paths();
     if constexpr (log_activity) {
+        static Activity previous = Activity::idle;
+        static std::string context;
+        if (activity == Activity::dead && previous != Activity::dead)
+            std::cout << "DIED r" << bc::round_number() << ' ' << bc::to_string(bc::self().champion_name()) << " after " << context << std::endl;
+        previous = activity;
+        if (activity != Activity::dead) {
+            const auto& me = bc::self();
+            context = "act" + std::to_string(static_cast<int>(activity)) + " hp" + std::to_string(static_cast<int>(me.health()))
+                + " gems" + std::to_string(me.gem_count()) + " foes" + std::to_string(bc::vision::champions(team::enemy).size())
+                + " pals" + std::to_string(bc::vision::champions(team::ally).size()) + " at" + bc::to_string(me.position());
+        }
         ++activity_counts[static_cast<std::size_t>(activity)];
         if (bc::round_number() % 100 == 99) {
             std::cout << "ACT " << bc::round_number() << ' ' << bc::to_string(bc::self().champion_name());
@@ -706,7 +850,15 @@ void Bot::play_turn() {
 Bot::Activity Bot::decide() {
     auto& me = bc::self();
 
-    if (!me.is_alive()) {
+    const bool alive = me.is_alive();
+    std::uint8_t dead_mask = 0;
+    bc::shared_memory.read(dead_mask_offset, std::span{&dead_mask, 1});
+    const auto my_bit = static_cast<std::uint8_t>(1u << (self_index & 7));
+    const auto updated = static_cast<std::uint8_t>(alive ? dead_mask & ~my_bit : dead_mask | my_bit);
+    if (updated != dead_mask) bc::shared_memory.write(dead_mask_offset, std::span{&updated, 1});
+    dead_allies = std::popcount(static_cast<unsigned>(updated & ~my_bit));
+
+    if (!alive) {
         shop();
         return Activity::dead;
     }
@@ -727,17 +879,18 @@ Bot::Activity Bot::decide() {
     for (auto& ally : bc::vision::champions(team::ally))
         if (!(ally == me) && is_alive_unit(ally)) view.allies.push_back(std::move(ally));
 
-    use_support(view.allies, view.enemies, view.camps);
+    const bool low_fuel = bc::fuel_remaining() < panic_fuel_reserve;
+    if (!low_fuel) use_support(view.allies, view.enemies, view.camps);
 
-    if (at_spawn && me.health() < me.max_health() * leave_spawn_health_ratio) {
-        skirmish(view);
+    if (at_spawn && (me.health() < me.max_health() * leave_spawn_health_ratio || dead_allies >= regroup_dead_count)) {
+        if (!low_fuel) skirmish(view);
         return Activity::healing;
     }
 
     // Hold a capture in progress unless an enemy forces a fight.
     const int standing_on = group_of(here);
     if (standing_on >= 0 && groups[static_cast<std::size_t>(standing_on)].reward_ready) {
-        skirmish(view);
+        if (!low_fuel) skirmish(view);
         return Activity::capturing;
     }
 
@@ -745,13 +898,31 @@ Bot::Activity Bot::decide() {
         retreat_or_recall(view);
         return Activity::recalling;
     }
-    if (skirmish(view)) return Activity::fighting;
+    if (!low_fuel && skirmish(view)) return Activity::fighting;
 
     const int target = current_target(view);
     if (should_bank(target)) {
         bank();
         return Activity::banking;
     }
-    if (answer_beacon()) return Activity::fighting;
+    if (!low_fuel && stick_with_partner()) return Activity::travelling;
+    if (!low_fuel && answer_beacon()) return Activity::fighting;
+    // Don't greed camps alone when dive comps are on the map — regroup on the beacon.
+    if (!low_fuel && alone_and_threatened(view)) {
+        raise_beacon(me.position());
+        if (me.gem_count() > 0 && should_bank(target)) {
+            bank();
+            return Activity::banking;
+        }
+        // Walk toward nearest ally if any are visible further out.
+        if (!view.allies.empty()) {
+            const auto* buddy = &*std::ranges::min_element(view.allies, {}, [&](const auto& a) {
+                return distance(me.position(), a.position());
+            });
+            if (distance(me.position(), buddy->position()) > ally_support_range
+                && advance_towards(tiles_around(buddy->position(), 2)))
+                return Activity::travelling;
+        }
+    }
     return farm(target, view);
 }

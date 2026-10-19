@@ -34,6 +34,8 @@ class Bot {
     bool initialised = false;
     bool melee = true;
     int squad = 0;
+    int self_index = 0;
+    int dead_allies = 0;
     int squad_count = 1;
     int stalled_turns = 0;
     std::optional<cambc::champion> partner;
@@ -42,7 +44,11 @@ class Bot {
     std::vector<cambc::vec2> altars;
     cambc::bitboard altar_approach;
     std::optional<cambc::distance_field> altar_path;
+    std::optional<cambc::distance_field> home_path;
+    cambc::vec2 home_center;
+    cambc::vec2 enemy_center;
     cambc::bitboard terrain;
+    std::uint32_t safe_gem_value = 0;
 
     void init();
     void precompute_paths();
@@ -63,6 +69,8 @@ class Bot {
     float focus_priority(const cambc::champion& enemy) const;
     void raise_beacon(cambc::vec2 where) const;
     bool answer_beacon();
+    bool stick_with_partner();
+    bool alone_and_threatened(const View& view) const;
     bool should_bank(int target) const;
     void bank();
     void retreat_or_recall(const View& view);

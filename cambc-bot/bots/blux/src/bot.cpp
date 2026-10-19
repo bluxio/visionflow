@@ -108,7 +108,8 @@ bool advance_towards(bc::bitboard goals, bool allow_dash = true, const bc::bitbo
     const auto here = me.position();
     if (goals.is_set(here) || bc::fuel_remaining() < movement_fuel_reserve) return false;
 
-    const auto dash = allow_dash ? ready_ability(&bc::ability::is_dash) : std::nullopt;
+    const bool can_dash = allow_dash && bc::fuel_remaining() >= dash_fuel_reserve;
+    const auto dash = can_dash ? ready_ability(&bc::ability::is_dash) : std::nullopt;
     if (!me.can_move() && !dash) return false;
 
     const auto blocked = blocked_tiles();
@@ -118,7 +119,8 @@ bool advance_towards(bc::bitboard goals, bool allow_dash = true, const bc::bitbo
     auto path_walls = blocked & ~goals;
     bc::distance_field field;
     bc::bitboard visited;
-    if (avoid) {
+    // Detours are expensive — only when we have fuel headroom.
+    if (avoid && bc::fuel_remaining() >= dash_fuel_reserve) {
         auto detour = path_walls | (*avoid & ~goals);
         detour.set(here, false);
         field.compute_to(detour, goals, tiles_around(here, 0), visited);
@@ -368,6 +370,9 @@ int Bot::altar_distance(vec2 from) const {
 // group.state() re-queries vision every call, so only poll the nearest visible groups while fuel lasts.
 void Bot::observe_groups() {
     const auto round = bc::round_number();
+    // state() costs a full vision query each time — skip alternate turns when the map is dense.
+    if (groups.size() > 12 && (round & 1u) != 0 && bc::fuel_remaining() < observe_fuel_reserve + 20000)
+        return;
     const auto here = bc::self().position();
     const auto visible = bc::vision::visible_tiles();
     std::vector<std::pair<int, Group*>> nearby;
@@ -377,7 +382,6 @@ void Bot::observe_groups() {
         nearby.emplace_back(distance(here, info.center), &info);
     }
     std::ranges::sort(nearby, {}, &std::pair<int, Group*>::first);
-    // state() re-queries vision each call — hard-cap how many we touch per turn.
     int polled = 0;
     for (auto& [_, info] : nearby) {
         if (polled >= max_group_polls || bc::fuel_remaining() < observe_fuel_reserve) break;
