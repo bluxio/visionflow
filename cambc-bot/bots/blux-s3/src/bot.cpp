@@ -426,15 +426,19 @@ int Bot::choose_target(const std::vector<int>& taken) const {
         if (info.respawn_until >= round + static_cast<std::uint32_t>(travel)) continue;
 
         const float clear_time = info.health / squad_damage_per_round;
-        const float danger = info.strength * clear_time * danger_weight;
+        const bool gem_starved = safe_gem_value < monolith_gem_fallback;
+        // Monolith danger (200 str * huge HP) otherwise makes gold clusters win on contest.
+        const float danger = (info.monolith && gem_starved) ? 0.0f : info.strength * clear_time * danger_weight;
         const float banking = altar_weight * static_cast<float>(info.group.gem_value()) / static_cast<float>(bank_gem_threshold)
             * static_cast<float>(altar_distance(info.center));
         float value = info.group.gem_value() + 0.3f * info.group.gold_value();
         if (info.strength <= 0) value *= cluster_bonus;
-        if (info.monolith && safe_gem_value < monolith_gem_fallback) value *= 2.0f;
+        if (info.monolith && gem_starved) value *= 5.0f; // must farm the only gem source
         float score = value / (travel_weight * travel + clear_time + danger + banking + bc::constants::capture_time + 5.0f);
         if (travel <= nearest_camp_bonus_range) score *= nearest_camp_bonus;
-        if (distance(info.center, enemy_center) < distance(info.center, home_center)) score *= enemy_half_factor;
+        // Don't deprioritize the gem side of a gem-starved map.
+        if (!gem_starved && distance(info.center, enemy_center) < distance(info.center, home_center))
+            score *= enemy_half_factor;
         if constexpr (seed != 0) {
             std::uint64_t mix = (static_cast<std::uint64_t>(seed) << 32) ^ (static_cast<std::uint64_t>(i) << 16) ^ (round / 25);
             mix = (mix ^ (mix >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -459,8 +463,10 @@ float Bot::vitality() const {
 
 // Shared memory bytes [2s, 2s+1] hold squad s's target group index plus one.
 int Bot::current_target(const View& view) {
+    // Gem-starved maps (contest): pile onto one monolith — splitting never finishes 20k HP.
+    const int slot = (safe_gem_value < monolith_gem_fallback) ? 0 : squad;
     std::uint16_t stored = 0;
-    bc::shared_memory.read(static_cast<std::size_t>(2 * squad), std::span{&stored, 1});
+    bc::shared_memory.read(static_cast<std::size_t>(2 * slot), std::span{&stored, 1});
     int target = static_cast<int>(stored) - 1;
 
     // One ally is enough to capture a cleared group, so the rest of the squad moves on.
@@ -475,15 +481,17 @@ int Bot::current_target(const View& view) {
     }
 
     std::vector<int> taken;
-    for (int other = 0; other < squad_count; ++other) {
-        if (other == squad) continue;
-        std::uint16_t other_stored = 0;
-        bc::shared_memory.read(static_cast<std::size_t>(2 * other), std::span{&other_stored, 1});
-        taken.push_back(static_cast<int>(other_stored) - 1);
+    if (safe_gem_value >= monolith_gem_fallback) {
+        for (int other = 0; other < squad_count; ++other) {
+            if (other == slot) continue;
+            std::uint16_t other_stored = 0;
+            bc::shared_memory.read(static_cast<std::size_t>(2 * other), std::span{&other_stored, 1});
+            taken.push_back(static_cast<int>(other_stored) - 1);
+        }
     }
     target = choose_target(taken);
     stored = static_cast<std::uint16_t>(target + 1);
-    bc::shared_memory.write(static_cast<std::size_t>(2 * squad), std::span{&stored, 1});
+    bc::shared_memory.write(static_cast<std::size_t>(2 * slot), std::span{&stored, 1});
     return target;
 }
 
@@ -694,6 +702,9 @@ bool Bot::should_bank(int target) const {
         if (info.reward_ready && info.tiles.is_set(here)) return false;
     }
 
+    // Contest-like maps: each monolith drop is precious — bank immediately.
+    if (safe_gem_value < monolith_gem_fallback) return true;
+
     if (gems >= bank_gem_threshold) return true;
     if (bc::round_number() + endgame_rounds >= bc::constants::max_rounds) return true;
     const int to_altar = altar_distance(here);
@@ -723,6 +734,15 @@ void Bot::bank() {
             }
             attempt([&] { return me.place_ward(altar); });
             if (attempt([&] { me.submit_gems(altar); return true; })) return;
+        }
+    }
+    // Clear the path / peel divers while walking gems in.
+    for (const auto& enemy : bc::vision::champions(team::enemy)) {
+        if (!is_alive_unit(enemy)) continue;
+        if (me.attack_tiles().is_set(enemy.position())) {
+            attack_with_reset(enemy);
+            cast_offensive(enemy, false);
+            break;
         }
     }
     advance_towards(goals);
@@ -786,6 +806,15 @@ Bot::Activity Bot::farm(int target, const View& view) {
         attack_with_reset(*victim);
         cast_offensive(*victim, true);
         return Activity::attacking;
+    }
+
+    // Free hits on anyone already in AA range while we farm (don't chase).
+    for (const auto& enemy : view.enemies) {
+        if (me.attack_tiles().is_set(enemy.position())) {
+            attack_with_reset(enemy);
+            cast_offensive(enemy, false);
+            break;
+        }
     }
 
     // Approach: melee closes on the camps, ranged stops at attack range; empty groups mean capture.
@@ -895,12 +924,25 @@ Bot::Activity Bot::decide() {
     }
 
     if (!at_spawn && me.health() < me.max_health() * recall_health_ratio) {
+        // Gems die with you — dump them if an altar is close and nobody is diving you.
+        if (me.gem_count() >= cautious_gem_count
+            && altar_distance(here) <= nearby_altar_distance
+            && !alone_and_threatened(view)) {
+            bank();
+            return Activity::banking;
+        }
         retreat_or_recall(view);
         return Activity::recalling;
     }
-    if (!low_fuel && skirmish(view)) return Activity::fighting;
 
     const int target = current_target(view);
+    // Contest: bank before skirmish so monolith gems aren't lost mid-fight.
+    if (safe_gem_value < monolith_gem_fallback && should_bank(target)) {
+        if (!low_fuel && alone_and_threatened(view) && skirmish(view)) return Activity::fighting;
+        bank();
+        return Activity::banking;
+    }
+    if (!low_fuel && skirmish(view)) return Activity::fighting;
     if (should_bank(target)) {
         bank();
         return Activity::banking;
@@ -922,6 +964,21 @@ Bot::Activity Bot::decide() {
             if (distance(me.position(), buddy->position()) > ally_support_range
                 && advance_towards(tiles_around(buddy->position(), 2)))
                 return Activity::travelling;
+        }
+    }
+
+    // Contest stole captures: enemy standing on a ready reward — take the fight / steal.
+    if (!low_fuel && target >= 0) {
+        const auto& info = groups[static_cast<std::size_t>(target)];
+        if (info.reward_ready) {
+            const bool enemy_on = std::ranges::any_of(view.enemies, [&](const auto& e) {
+                return info.tiles.is_set(e.position());
+            });
+            if (enemy_on) {
+                raise_beacon(info.center);
+                if (skirmish(view)) return Activity::fighting;
+                if (advance_towards(info.tiles)) return Activity::fighting;
+            }
         }
     }
     return farm(target, view);
