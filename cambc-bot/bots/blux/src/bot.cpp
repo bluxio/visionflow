@@ -745,6 +745,13 @@ void Bot::bank() {
             break;
         }
     }
+    for (const auto& camp : bc::vision::camps()) {
+        if (!is_alive_unit(camp) || camp.strength() > 0) continue;
+        if (me.attack_tiles().is_set(camp.position())) {
+            attack_with_reset(camp);
+            break;
+        }
+    }
     advance_towards(goals);
 }
 
@@ -981,5 +988,6 @@ Bot::Activity Bot::decide() {
             }
         }
     }
+
     return farm(target, view);
 }
